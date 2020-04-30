@@ -6,11 +6,11 @@
 
 java语言把线程状态分为了6种，它们位于Thread类中的一个枚举类State。在任意一个时刻，线程只能处于其中的一个状态。在Java中，把操作系统中的运行和就绪两个状态合并称为运行状态
 
-![](./images\java线程运行状态.jpg)
+![](./images/java线程运行状态.jpg)
 
 基于上面的6种，java线程状态的变迁如下：
 
-![](./images\java线程变迁.jpg)
+![](./images/java线程变迁.jpg)
 
 - **阻塞**：当一个线程试图获取一个内部的对象锁（非java.util.concurrent库中的锁），而该锁被其他线程持有，则该线程进入阻塞状态
 - **等待**：当一个线程等待另一个线程通知调度器一个条件时，该线程进入等待状态，例如调用：Object.wait()、Thread.join()以及等待Lock或Condition
@@ -282,7 +282,7 @@ t2.start();
 
 执行结果：
 
-![](./images\join()执行结果.png)
+![](./images/join()执行结果.png)
 
 ### 1.6.2.yield()
 
@@ -313,7 +313,7 @@ t2.start();
 
 如果yield()方法生效，即t2抢到了cpu资源，则会打印下面的结果：
 
-![](./images\yield()执行结果.png)
+![](./images/yield()执行结果.png)
 
 t1在循环到i=5时，让出cpu资源，而t2先于t1抢到cpu资源，所以上图中可以看到t1打印到"4"的时候，t2插入打印了"0"。但是yield()并不是join()，它不会等待t2线程执行完，仍然会继续抢夺cpu资源，所以t1也会继续执行。
 

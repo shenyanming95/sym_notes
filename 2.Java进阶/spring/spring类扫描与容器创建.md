@@ -37,7 +37,7 @@ public interface BeanDefinition extends AttributeAccessor, BeanMetadataElement {
 
 剩下的源码就是BeanDefinitiopn定义的方法用来获取定义Bean时的各种属性配置。它的继承关系为：
 
-![](.\images\BeanDefinition继承图.png)
+![](./images/BeanDefinition继承图.png)
 
 ### 1.1.2.classMetadata
 

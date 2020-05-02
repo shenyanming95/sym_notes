@@ -422,7 +422,7 @@ childThread.start();
 
 JMM，全名是Java Memory Model，即Java内存模型。这里的Java内存模型与JVM内存模型是不同的概念，它相当于下图所示的结构：
 
-![](C:/Users/Administrator/Desktop/笔记-md/1.Java基础/Java并发编程/images/java内存模型.png)
+![](./images/java内存模型.png)
 
 主内存中存储程序定义的变量，这个变量包括了实例变量、静态变量和构成数组对象的元素，但是不包括局部变量和方法参数（因为局部变量和方法参数是线程私有的）。主内存是多线程共享的，所有线程都可以访问主内存，每个线程不能直接在主内存中操作变量，都是从主内存中拷贝变量的副本到自己的工作内存中，对变量操作完后，再重新写入主内存中。线程只能访问自己的工作内存，不可以访问其它线程的工作内存。
 
@@ -450,7 +450,7 @@ Java中所有共享变量都是以这种方式读取的：（以下8个操作每
 
 ⑧**write**：将store操作从工作内存得到的变量的值写入主内存的共享变量中。
 
-![](C:/Users/Administrator/Desktop/笔记-md/1.Java基础/Java并发编程/images/JMM内存交互.png)
+![](./images/JMM内存交互.png)
 
 ### 2.1.2.主内存与工作内存：交互规则
 
@@ -531,7 +531,7 @@ volatile是Java中的关键字，用来实现变量的可见性：即一个线�
 
 当查看被volatile修饰的变量的汇编代码时，会发现它在前面加了个lock：
 
-![](C:/Users/Administrator/Desktop/笔记-md/1.Java基础/Java并发编程/images/volatile底层原理.png)
+![](./images/volatile底层原理.png)
 
 其实volatile底层就是通过汇编lock前缀指令来实现，IA-32架构软件开发者手册对lock指令的解释：
 
@@ -547,7 +547,7 @@ volatile是Java中的关键字，用来实现变量的可见性：即一个线�
 
 这里借图灵学院-诸葛老师画的一张图来举例说明volatile的执行流程：
 
-![](C:/Users/Administrator/Desktop/笔记-md/1.Java基础/Java并发编程/images/volatile执行流程.png)
+![](./images/volatile执行流程.png)
 
 假设两个线程(CPU)并行操作共享变量initFlag，它们分别先执行了JMM规定的read和load两个原子操作将主内存数据拷贝到各自工作内存中，此时的initFlag=false，这时候线程2获取到时间片，它执行use和assign操作，将initFlag的值由false改为true，就在这个瞬间，MESI缓存一致性原则生效，线程2会立即执行store和write原子操作，将initFlag的新值写回到主内存里，同时借助总线嗅探机制的监听，会让线程1工作内存中的initFlag的内存地址失效掉(可以理解为置空了)，线程1这时候就会重新执行read和load个原子操作，重新将initFlag读回到自己的工作内存里面去，这时候执行引擎就会拿到最新值（执行引擎是一直与线程工作内存打交道的，发现工作内存的数据失效了，它也执行不了了）
 
@@ -574,7 +574,7 @@ volatile为什么不能保证原子性？举个例子，在两个线程中，对
 
 Volatile虽然不能保证原子性，但是它可以防止指令重排序。何为指令重排序？
 
-![](C:/Users/Administrator/Desktop/笔记-md/1.Java基础/Java并发编程/images/指令重排序.jpg)
+![](./images/指令重排序.jpg)
 
 就是源代码编译成可执行机器码，会经过一系列重排序，例如：1的java编译器重排序，2和3的处理器重排序。原本代码定义的执行顺序是1-2-3,经过指令重排序后，执行顺序可能变为1-3-2，这可能导致多线程环境下可能出现问题，例如下面代码：
 
@@ -833,7 +833,7 @@ synchronized修饰静态方法和修饰类的效果虽然一样，但是还是�
 
 3. wait set  — 等待条件变量的线程
 
-![](C:/Users/Administrator/Desktop/笔记-md/1.Java基础/Java并发编程/images/monitor机制.png)
+![](./images/monitor机制.png)
 
 monitor机制最大的特点就是：同一时刻，只有一个线程可以进入临界区，其它线程都会被阻塞。entry set好理解，就是线程来到临界区，发现有线程已经进入临界区了，它就会在entry set阻塞等待；而wait set是这样：是线程已经进入临界区，但是条件不匹配(类似生产者-消费者模型)，它就会从临界区出来，进入wait set阻塞等待条件的满足，这个即Object类的wait()和notify()方法！！！等到进入临界区的线程出来后，entry set和wait set的线程就会共同竞争CPU，以获取进入临界区的资格！！！以上就是synchronized基于monitor机制实现的线程互斥效果，可以看出实现monitor机制需要3个元素：
 

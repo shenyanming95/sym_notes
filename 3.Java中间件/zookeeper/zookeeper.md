@@ -4,19 +4,19 @@ Zookeeper是一个开源的为分布式应用提供协调服务的Apache项目�
 
 ## 1.1.特点
 
-![](./images/\zookeeper特点.png)
+![](./images/zookeeper特点.png)
 
-①一个领导者(Leader)，多个跟随者(Follower)组成的集群；
+1. 一个领导者(Leader)，多个跟随者(Follower)组成的集群；
 
-②集群中只要有半数以上节点存活，集群就能正常服务；
+2. 集群中只要有半数以上节点存活，集群就能正常服务；
 
-③全局数据一致，每个server节点保存相同的数据副本，client无论连接到哪个server上，数据都是一样的；
+3. 全局数据一致，每个server节点保存相同的数据副本，client无论连接到哪个server上，数据都是一样的；
 
-④更新请求顺序执行，来自同一个Client的更新请求按其发送顺序依次珍惜；
+4. 更新请求顺序执行，来自同一个Client的更新请求按其发送顺序依次珍惜；
 
-⑤数据更新原子性，一次数据更新要么成功，要么失败
+5. 数据更新原子性，一次数据更新要么成功，要么失败
 
-⑥实时性：在一定时间范围内，client能获取到最新数据
+6. 实时性：在一定时间范围内，client能获取到最新数据
 
 ## 1.2.基本概念
 
@@ -81,15 +81,15 @@ Znode类型可以分为3大类：持久节点(PERSISTENT)、临时节点(EPHEMER
 
 Access Control Lists，zookeeper采用ACL策略进行权限控制，并定义了以下5个权限：
 
-①Create：创建子节点的权限；
+1. Create：创建子节点的权限；
 
-②read：获取节点数据和子节点列表的权限
+2. read：获取节点数据和子节点列表的权限
 
-③write：更新节点数据的权限
+3. write：更新节点数据的权限
 
-④delete：删除子节点的权限
+4. delete：删除子节点的权限
 
-⑤admin：设置ACL的权限
+5. admin：设置ACL的权限
 
 ## 1.3.分布式特性
 
@@ -141,23 +141,23 @@ zookeeper的应用场景丰富多彩，诸如：数据发布/订阅、分布式�
 
 Paxos算法是一种基于**消息传递**(分布式系统中的节点通信存在两种模型：共享内存（Shared memory）和消息传递（Messages passing）)且具有高度容错特性的一致性算法，是目前公认的解决分布式一致性问题最有效的算法之一，但是它推导过程和证明过程太过复杂，这里就记录它的核心思想。在paxos算法中，定义了3个角色：Proposer、Acceptor和Learner，其中
 
-Proposer：相当于议员，由它发起法案给Acceptor投票，它自己不参与投票;
+1. Proposer：相当于议员，由它发起法案给Acceptor投票，它自己不参与投票;
 
-Acceptor：相当于议会，接收Proposer的法案，进行投票；
+2. Acceptor：相当于议会，接收Proposer的法案，进行投票；
 
-Learner：既不发起法案也不参与投票，相当于会议的记录员。
+3. Learner：既不发起法案也不参与投票，相当于会议的记录员。
 
 ### 2.1.1.第一阶段
 
-a).Proposer选择一个提案编号N，然后向半数以上的Acceptor发送编号为N的Prepare请求:
+1. Proposer选择一个提案编号N，然后向半数以上的Acceptor发送编号为N的Prepare请求:
 
-b).如果一个Acceptor收到一个编号为N的Prepare请求，且N大于该Acceptor已经响应过的所有Prepare请求的编号，那么它就会将它已经接受过的编号最大的提案（如果有的话）作为响应反馈给Proposer，同时该Acceptor承诺不再接受任何编号小于N的提案。
+2. 如果一个Acceptor收到一个编号为N的Prepare请求，且N大于该Acceptor已经响应过的所有Prepare请求的编号，那么它就会将它已经接受过的编号最大的提案（如果有的话）作为响应反馈给Proposer，同时该Acceptor承诺不再接受任何编号小于N的提案。
 
 ### 2.1.2.第二阶段
 
-a).如果Proposer收到半数以上Acceptor对其发出的编号为N的Prepare请求的响应，那么它就会发送一个针对[N,V]提案的Accept请求给半数以上的Acceptor。注意：V就是收到的响应中编号最大的提案的value，如果响应中不包含任何提案，那么V就由Proposer自己决定；
+1. 如果Proposer收到半数以上Acceptor对其发出的编号为N的Prepare请求的响应，那么它就会发送一个针对[N,V]提案的Accept请求给半数以上的Acceptor。注意：V就是收到的响应中编号最大的提案的value，如果响应中不包含任何提案，那么V就由Proposer自己决定；
 
-b).如果Acceptor收到一个针对编号为N的提案的Accept请求，只要该Acceptor没有对编号大于N的Prepare请求做出过响应，它就接受该提案
+2. 如果Acceptor收到一个针对编号为N的提案的Accept请求，只要该Acceptor没有对编号大于N的Prepare请求做出过响应，它就接受该提案
 
 ## 2.2.Raft
 
@@ -247,11 +247,11 @@ ZAB协议为了保证上面说的两种数据不一致情况，它会选举拥�
 
 zookeeper提供了分布式数据的发布/订阅功能，能够让多个订阅者同时监听同一主题对象，当该对象自身状态发生变化了，通知所有订阅者。实现这一功能的底层就是zookeeper的watcher机制，它的大体流程为：
 
-1. zk客户端向服务端注册一个watcher，并将它保存到本地watchManager；
+1. zookeeper客户端向服务端注册一个watcher，并将它保存到本地watchManager；
 
-2. zk服务端对应事件发生了，向客户端发起网络请求，通知它；
+2. zookeeper服务端对应事件发生了，向客户端发起网络请求，通知它；
 
-3. zk客户端收到服务端通知后，从本地watcherManager取出对应的watcher执行回调
+3. zookeeper客户端收到服务端通知后，从本地watcherManager取出对应的watcher执行回调
 
 ### 3.1.1.核心接口
 
@@ -362,6 +362,12 @@ zooKeeper.addAuthInfo("user222", "add".getBytes());
 ```
 
 ### 3.1.2.客户端
+
+在zookeeper的Watcher机制中，客户端需要实现两个功能，一个是将用户设置的监听器注册到zk服务器上；另一个就是接收zk服务器的通知，执行watcher的回调。
+
+#### 3.1.2.1.注册watcher
+
+clientPath 就是我们要查找的数据节点的路径
 
 
 

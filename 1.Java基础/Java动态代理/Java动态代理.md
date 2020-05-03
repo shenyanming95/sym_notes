@@ -176,7 +176,7 @@ public class LogHandler implements InvocationHandler {
    		 System.out.println("开始记录日志..."); 
        // 反射回调原本的功能
        Object returnParam = method.invoke(target,args); 
-       //新增的功能
+       // 新增的功能
        System.out.println("结束记录日志..."); 
        return returnParam; 
    }
@@ -206,11 +206,10 @@ CGLIB动态代理会生成一个初始类的子类，子类重写初始类的所
 
 ```xml
 <dependency>
-	<groupId>cglib</groupId>
-	<artifactId>cglib</artifactId>
-  <version>3.3.0</version>
+    <groupId>cglib</groupId>
+    <artifactId>cglib</artifactId>
+    <version>3.3.0</version>
 </dependency>
-
 ```
 
 ### 2.2.1.原始类

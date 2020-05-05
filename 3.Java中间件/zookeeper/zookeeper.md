@@ -369,11 +369,115 @@ zooKeeper.addAuthInfo("user222", "add".getBytes());
 
 clientPath 就是我们要查找的数据节点的路径
 
+#### 3.1.2.2.请求头
 
+```java
+public class RequestHeader implements Record {
+    // xid用来记录客户端请求发起的先后序号，用于确保单个客户端请求的响应顺序  
+    private int xid;
+
+    // 代表请求的操作类型，值类型为：org.apache.zookeeper.ZooDefs.OpCode
+    private int type;
+}
+```
 
 ### 3.1.3.服务端
 
 
+
+## 3.2.启动流程
+
+### 3.2.1.单机启动
+
+![](./images/zookeeper单机启动流程.png)
+
+### 3.2.2.集群启动
+
+![](./images/zookeeper集群启动流程.png)
+
+## 3.3.选举机制
+
+在zookeeper集群中，有两种情况需要执行选举流程，选出leader服务器：
+
+1. zookeeper集群刚刚启动的时候；
+2. zookeeper集群运行中leader服务器宕机了，需要重新选出leader服务器；
+
+zookeeper集群服务器的运行状态由org.apache.zookeeper.server.quorum.QuorumPeer.ServerState决定：
+
+```java
+public enum ServerState {
+    // 当开始leader选举时，集群中的每个服务器节点都会处于 LOOKING 状态
+    LOOKING,
+    
+    // Follower服务器的运行状态
+    FOLLOWING,
+    
+    // Leader服务器的运行状态
+    LEADING,
+    
+    // Observer服务器的运行状态
+    OBSERVING
+}
+```
+
+zookeeper的选举过程是通过多次投票实现的，投票信息由org.apache.zookeeper.server.quorum.Vote定义：
+
+```java
+public class Vote {
+    private final int version;
+	
+    // 被推举的Leader的SID值，即指定当前这个票Vote要投给的服务器的ID
+    private final long id;
+	
+    // 被推举的Leader的事务ID
+    private final long zxid;
+
+    // 逻辑时钟，用来判断多个投票是否在同一轮选举周期中。此值在zookeeper服务端
+    // 是一个自增序列，每次进入新一轮的投票后，此值都会加1
+    private final long electionEpoch;
+
+    // 被推举的Leader的epoch
+    private final long peerEpoch;
+    
+    // 发出此投票信息的服务器的状态
+    private final ServerState state;
+}
+```
+
+zookeeper集群的选举过程其实就是各个服务器比比较ZXID和SID的过程，SID是单个zookeeper服务器的唯一标识，它的值与配置文件的myid一致，ZXID是当前服务器处理完成的最大事务ID；因此可以简单地将投票信息表示为(1,0)，1表示服务器SID为1,0表示服务器的ZXID为0。
+
+### 3.3.1.启动时选举
+
+假设有3台zookeeper服务器节点组成集群，它们的编号为①②③，对应的SID依次为1、2、3，它们在启动时的选举过程如下：
+
+1. 集群服务器启动，所有zookeeper节点都处于LOOKING运行状态，并向其它节点发送消息，这个消息就是投票信息Vote，它会给出两个最基本的信息：被选举的Leader的SID和ZXID；
+2. 集群刚启动，每个zookeeper节点不知道其它节点的状态信息，所以都会投票给自己；而且由于是刚启动，未处理过任何[事务](#1.2.6.事务(ZXID))，所以它们的ZXID都为0，投票信息如下：
+   - ①给出的Vote信息：（1,0）
+   - ②给出的Vote信息：（2,0）
+   - ③给出的Vote信息：（3,0）
+3. 发出投票消息的同时，也会收到其它zookeeper节点发出的Vote信息，就会通过SID和ZXID比较来决定是否要变更自己的投票；比较的规则是：优先比较ZXID，值最大的推举为Leader；ZXID相同的情况下，比较SID，其值最大的推举为Leader。各个服务器的投票变更情况如下：
+   - ①收到两个投票信息(2,0)和(3,0)，由于(3,0)这个投票信息的SID大于自己，变更投票为(3,0)并重新发出；
+   - ②收到两个投票信息(1,0)和(3,0)，由于(3,0)这个投票信息的SID大于自己，变更投票为(3,0)并重新发出；
+   - ③收到两个投票信息(1,0)和(2,0)，发现它们的SID没有自己的大，因此不需要做任何变更。
+
+4. 经过第二次的投票后，集群中的每个zookeeper节点会收到其它节点的投票，然后开始统计投票。若一台机器收到了超过半数的投票，那么这个投票对应的SID机器就成为了Leader，很明显，节点③会成为此次选举过程的Leader，它会更改状态LEADING，其它节点如果是follower就变更状态为FOLLOWING。
+
+### 3.3.2.宕机时选举
+
+宕机时选举跟[启动时选举](#3.3.1.启动时选举)其实大同小异，最大的区别就是运行时的zookeeper集群各个节点的事务ID可能不一样。假设有zookeeper集群服务器5台①②③④⑤，它们的SID依次为1,2,3,4,5，其中⑤节点为Leader。某一时刻，②和⑤服务器宕机，①③④服务器会由于没有Leader的心跳包，会变更状态为LOOKING，即开始新的选举：
+
+1. 集群的zookeeper节点不知道其它节点的状态，仍然会投票给自己，Vote信息如下：
+   - ①的ZXID假设为4，它发出的投票信息为(1,4)，1是它自己的SID；
+   - ③的ZXID假设为3，他发出的投票信息为(3,3)，3是它自己的SID；
+   - ④的ZXID假设为3，它发出的投票信息为(4,3)，4是它自己的SID；
+
+2. zookeeper节点发出投票后也会收到其它节点的Vote信息：
+   - ①收到(3,3)和(4,3)，发现它们的ZXID都为3，而自己的ZXID为4，所以不会变更当前投票内容；
+   - ③收到(1,4)和(4,3)，发现(1,4)这个票数的ZXID比其它票数和自己的ZXID大，变更投票为(1,4)；
+   - ④收到(1,4)和(3,3)，发现(1,4)这个票数的ZXID比其它票数和自己的ZXID大，变更投票为(1,4)；
+
+3. 经过第二次的投票后，集群中的每个zookeeper节点会收到其它节点的投票，然后开始统计投票。若一台机器收到了超过半数的投票，那么这个投票对应的SID机器就成为了Leader，很明显，节点①会成为此次选举过程的Leader，就会成为新一轮的节点；
+4. 如果此时节点②和⑤重启成功，由于有新的Leader被选举出来，所以它们会作为Follower与①同步数据。
 
 # *.zookeeper配置
 

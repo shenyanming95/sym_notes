@@ -1,0 +1,1 @@
+seata的AT模式，就是2PC协议的实现，它一个最大的亮点就是取消了2PC协议在准备阶段对RM（Resource Manager）的资源锁定，而是通过对数据源DataSource做了代理，在更新数据的数据插入一条undo语句，以便在回滚时进行反向SQL执行（例如原事务执行了insert语句，seata的反向SQL就是执行delete语句），这样可以在准备阶段就将事务提交掉，避免了资源锁定。

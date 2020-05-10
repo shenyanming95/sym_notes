@@ -2363,3 +2363,155 @@ protected void addSingleton(String beanName, Object singletonObject) {
 spring有4种bean生命周期接口和方法
 
 ### 3.2.1.Bean自身方法
+
+Bean自身方法，就是对某个Bean自己有作用而已，不会影响其他Bean的创建。即在spring配置文件中，<bean>的init-method和destroy属性
+
+### 3.2.2.Bean级生命周期接口
+
+Bean级生命周期接口，对实现接口的Bean起作用，主要有：各类***Aware接口、InitializingBean和DisposableBean，这些接口由bean直接实现。
+
+#### 3.2.2.1.*Aware接口
+
+spring提供了一组名为 ***Aware的接口，这些接口都继承于org.springframework.beans.factory.Aware标记接口。这些接口都有一个setter()方法，spring会回调这些方法把spring自身对象传递进来。
+
+**常见的\*Aware接口：**
+
+1)、ApplicationContextAware：获取ApplicationContext对象
+
+2)、BeanFactoryAware：获取 BeanFactory对象
+
+3)、BeanNameAware：获取Bean在配置文件中定义的名字
+
+4)、ResourceLoaderAware：获取ResourceLoader对象，以获取类路径下的文件
+
+5)、ServletContextAware：获取ServletContext对象，可读取context中的参数
+
+6)、ServletConfigAware：获取ServletConfig对象，可以读取config中的参数
+
+7)、LoadTimeWeaverAware：加载Spring Bean时织入第三方模块，如AspectJ
+
+8)、BeanClassLoaderAware：加载Spring Bean的类加载器
+
+9)、BootstrapContextAware：资源适配器BootstrapContext，如JCA,CCI
+
+10)、PortletConfigAware：PortletConfig
+
+11)、PortletContextAware：PortletContext
+
+12)、ServletConfigAware：ServletConfig
+
+13)、ServletContextAware：ServletContext
+
+14)、MessageSourceAware：国际化
+
+15)、ApplicationEventPublisherAware：获取事件发布器
+
+16)、NotificationPublisherAware：JMX通知
+
+#### 3.2.2.2.InitializingBean
+
+InitializingBean接口，相当于使用配置文件时<bean>的init-method属性，它只有一个afterPropertiesSet()方法，用于对实例好的Bean进行属性赋值(spring Bean初始化阶段)
+
+```java
+public interface InitializingBean {
+void afterPropertiesSet() throws Exception;
+}
+```
+
+执行时机：在BeanPostProcessor之后，init-method之前，执行
+
+![](./images/init-method执行时机.png)
+
+#### 3.2.2.3.DisposableBean
+
+DisposableBean接口，相当于使用配置文件时<bean>的destroy属性，它只有destroy()方法，用于在spring容器关闭时，对Bean进行资源回收操作。
+
+```java
+public interface DisposableBean {
+    void destroy() throws Exception;
+}
+```
+
+执行时机：先于destroy属性执行
+
+![](./images/DisposableBean执行时机.png)
+
+### 3.2.3.容器级生命周期接口
+
+容器级接口，影响spring容器的启动过程，会对每个Bean的创建都起作用。有两个接口：InstantiationAwareBeanPostProcessor和BeanPostProcessor这两个接口
+
+#### 3.2.3.1.BeanPostProcessor
+
+Spring中提供了很多***PostProcessor接口用来实现自定义的扩展，这些统称**后置处理器。常见的有： BeanPostProcessor、BeanFactoryPostProcessor、BeanValidationPostProcessor等。其中BeanPostProcessor接口用于spring初始化Bean进行额外的自定义处理，它作用于全局的Bean初始化(即每个Bean初始化时它都会生效！)该接口只有两个方法：
+
+```java
+public interface BeanPostProcessor {
+    /**
+     * 在spring初始化Bean之前调用(注意和实例化的区别)
+     */
+    Object postProcessBeforeInitialization(Object bean, String beanName) throws
+        BeansException;
+
+    /**
+     * 在spring初始化Bean之后调用(注意和实例化的区别)
+     */
+    Object postProcessAfterInitialization(Object bean, String beanName) throws 
+        BeansException;
+}
+```
+
+spring会把所有实现BeanPostProcessor接口的类放到**AbstractBeanFacory**抽象类的beanPostProcessors属性中：
+
+```java
+/** BeanPostProcessors to apply in createBean */
+final List<BeanPostProcessor>beanPostProcessors = new ArrayList<BeanPostProcessor>();
+```
+
+并且它会按照PriorityOrdered和Ordered按顺序将BeanPostProcessor实现类按顺序添加进去，源码在**PostProcessorRegistrationDelegate-183行**。所以，如果有优先级要求，不仅要实现BeanPostProcessor接口还要实现Ordered或PriorityOrdered接口。
+
+**注册BeanPostProcessor**：
+
+①BeanFactory的addBeanPostProcessor()方法手动注册；
+
+②ApplicationContext自动注册已加载好的后置处理器BeanDefinition
+
+ (即：直接使用@Component注解标注)
+
+#### 3.2.3.2.InstantiationAwareBeanPostProcessor
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

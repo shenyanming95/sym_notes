@@ -2,7 +2,7 @@
 
 Bean是spring最基础、最根本的点，一个Bean其实就是一个组件，Bean的生命周期，其实就是学习spring是咋样实例化组件并且将其注册到容器中。spring 只会管理单例模式 Bean 的完整生命周期，对于 prototype类型的 bean，spring 在创建好交给使用者之后则不会再管理后续的生命周期。下图是spring的Bean工厂的整体类图：
 
-![](C:/Users/Administrator/Desktop/笔记-md/2.Java进阶/spring/images/spring的Bean工厂的整体类图.png)
+![](./images/spring的Bean工厂的整体类图.png)
 
 ## 1.1.Bean生命周期流程
 
@@ -12,7 +12,7 @@ Bean是spring最基础、最根本的点，一个Bean其实就是一个组件，
 
 2. 初始化：是一个修饰Bean的过程，即按照用户的意图，修改Bean的属性
 
-![](C:/Users/Administrator/Desktop/笔记-md/2.Java进阶/spring/images/spring生命周期流程.png)
+![](./images/spring生命周期流程.png)
 
 ### 1.1.1.preInstantiateSingletons()
 
@@ -946,7 +946,7 @@ private void invokeCustomDestroyMethod(final Method destroyMethod) {
 
 这边的循环依赖不同于[@DependsOn注解的循环依赖](#_循环依赖判断)(未实例化对象)，这里的循环依赖是已经实例化好Bean，它实际就是初始化A需要依赖于B，初始化B又要依赖于C，而初始化C又要依赖于A，这就会导致循环依赖问题。如下：
 
-![](C:/Users/Administrator/Desktop/笔记-md/2.Java进阶/spring/images/spring循环依赖示意图.png)
+![](./images/spring循环依赖示意图.png)
 
 **须知：**spring对循环依赖的处理有三种情况：
 
@@ -1131,7 +1131,7 @@ void afterPropertiesSet() throws Exception;
 
 执行时机：在BeanPostProcessor之后，init-method之前，执行
 
-![](C:/Users/Administrator/Desktop/笔记-md/2.Java进阶/spring/images/init-method执行时机.png)
+![](./images/init-method执行时机.png)
 
 ### 2.2.3.DisposableBean
 
@@ -1145,7 +1145,7 @@ public interface DisposableBean {
 
 执行时机：先于destroy属性执行
 
-![](C:/Users/Administrator/Desktop/笔记-md/2.Java进阶/spring/images/DisposableBean执行时机.png)
+![](./images/DisposableBean执行时机.png)
 
 ## 2.3.容器级生命周期接口
 

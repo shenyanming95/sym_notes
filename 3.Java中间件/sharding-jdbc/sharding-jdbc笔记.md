@@ -96,19 +96,19 @@ sharding-jdbc是Sharding-Sphere的模块之一，定位为轻量级Java框架，
 
 通过分片算法将数据分片，支持通过`=`、`>=`、`<=`、`>`、`<`、`BETWEEN`和`IN`分片。分片算法需要开发者自行实现，可实现的灵活度非常高。sharding-jdbc并未提供内置的分片算法，只是提供接口由开发者自行实现分片算法，当前版本提供4种：
 
-- 精确分片算法：
+- **精确分片算法**
 
 对应**PreciseShardingAlgorithm**，用于处理使用单一键作为分片键的=与IN进行分片的场景，需要配合**StandardShardingStrategy**使用
 
-- 范围分片算法
+- **范围分片算法**
 
 对应**RangeShardingAlgorithm**，用于处理使用单一键作为分片键的BETWEEN AND、>、<、>=、<=进行分片的场景，需要配合**StandardShardingStrategy**使用。
 
-- 复合分片算法
+- **复合分片算法**
 
 对应**ComplexKeysShardingAlgorithm**，用于处理使用多键作为分片键进行分片的场景，包含多个分片键的逻辑较复杂，需要开发者自行处理其中的复杂度，配合**ComplexShardingStrategy**使用
 
-- Hint分片算法
+- **Hint分片算法**
 
 对应**HintShardingAlgorithm**，用于处理使用Hint行分片的场景，需要配合**HintShardingStrategy**使用。
 
@@ -116,23 +116,23 @@ sharding-jdbc是Sharding-Sphere的模块之一，定位为轻量级Java框架，
 
 包含[分片键](#2.2.1.分片键)和[分片算法](#2.2.2.分片算法)，由于分片算法的独立性，将其独立抽离，真正可用于分片操作的是分片键 + 分片算法，即分片策略 = 分片算法 + 分片键，它才是真正用于分片的实现。目前提供5种分片策略
 
-- 标准分片策略
+- **标准分片策略**
 
 对应**StandardShardingStrategy**，提供对SQL语句中的=, >, <, >=, <=, IN和BETWEEN AND的分片操作支持。StandardShardingStrategy只支持单分片键，提供**PreciseShardingAlgorithm（精确分片算法）**和**RangeShardingAlgorithm（范围分片算法）**两个分片算法，其中PreciseShardingAlgorithm是必选的，用于处理=和IN的分片。RangeShardingAlgorithm是可选的，用于处理BETWEEN AND, >, <, >=, <=分片。如果不配置RangeShardingAlgorithm，SQL中的BETWEEN AND将按照全库路由处理
 
-- 复合分片策略
+- **复合分片策略**
 
 对应**ComplexShardingStrategy**。提供对SQL语句中的=, >, <, >=, <=, IN和BETWEEN AND的分片操作支持。ComplexShardingStrategy支持多分片键，由于多分片键之间的关系复杂，因此并未进行过多的封装，而是直接将分片键值组合以及分片操作符透传至分片算法，完全由应用开发者实现，提供最大的灵活度
 
-- 行表达式分片策略
+- **行表达式分片策略**
 
 对应**InlineShardingStrategy**。使用Groovy的表达式，提供对SQL语句中的=和IN的分片操作支持，只支持**单分片键**。对于简单的分片算法，可以通过简单的配置使用，从而避免繁琐的Java代码开发，如: `t_user_$->{u_id % 8}` 表示t_user表根据u_id模8，而分成8张表，表名称为`t_user_0`到`t_user_7`。
 
-- Hint分片策略
+- **Hint分片策略**
 
 对应**HintShardingStrategy**。通过Hint指定分片值而非从SQL中提取分片值的方式进行分片的策略。
 
-- 不分片策略
+- **不分片策略**
 
 对应NoneShardingStrategy。不分片的策略。
 
@@ -158,7 +158,7 @@ sharding-jdbc是Sharding-Sphere的模块之一，定位为轻量级Java框架，
 
 用于配置[逻辑表](#2.1.1.逻辑表)与[真实表](#2.1.2.真实表)的映射关系。可分为均匀分布和自定义分布两种形式。
 
-- 均匀分布
+- **均匀分布**
 
 指数据表在每个数据源内呈现均匀分布的态势，例如：
 
@@ -177,7 +177,7 @@ db1
 db0.t_order0, db0.t_order1, db1.t_order0, db1.t_order1
 ```
 
-- 自定义分布
+- **自定义分布**
 
 指数据表呈现有特定规则的分布，例如：
 
@@ -201,11 +201,11 @@ db0.t_order0, db0.t_order1, db1.t_order2, db1.t_order3, db1.t_order4
 
 对于分片策略存有数据源分片策略和表分片策略两种维度。
 
-- 数据源分片策略
+- **数据源分片策略**
 
 对应于**DatabaseShardingStrategy**。用于配置数据被分配的目标数据源。
 
-- 表分片策略
+- **表分片策略**
 
 对应于**TableShardingStrategy**。用于配置数据被分配的目标表，该目标表存在与该数据的目标数据源内。故表分片策略是依赖与数据源分片策略的结果的。
 
@@ -239,17 +239,200 @@ SELECT id, name FROM t_user WHERE status = 'ACTIVE' AND age > 18
 
 SQL路由就是把针对[逻辑表](#2.1.1.逻辑表)的数据操作映射到对[数据节点](#2.1.3.数据节点)操作的过程。
 
+根据解析上下文匹配数据库和表的分片策略，并生成路由路径。 对于携带分片键的SQL，根据分片键的不同可以划分为单片路由(分片键的操作符是等号)、多片路由(分片键的操作符是IN)和范围路由(分片键的操作符是BETWEEN)。 不携带分片键的SQL则采用广播路由。
+
+1. **分片路由**：用于根据分片键进行路由的场景，又细分为直接路由、标准路由和笛卡尔积路由这3种类型
+
+   - **直接路由**：通过HintAPI直接指定路由，其兼容性最好，可以执行包括子查询、自定义函数等复杂情况的任意SQL，还可以用于分片键不在SQL的场景：
+
+     ```java
+     hintManager.setDatabaseShardingValue(3);
+     ```
+
+     假如路由算法为`value % 2`，当一个逻辑库`t_order`对应2个真实库`t_order_0`和`t_order_1`时，路由后SQL将在`t_order_1`上执行；
+
+   - **标准路由**：当分片运算符是等于号时，路由结果将落入单库（表），当分片运算符是BETWEEN或IN时，则路由结果不一定落入唯一的库（表），因此一条逻辑SQL最终可能被拆分为多条用于执行的真实SQL。举例说明，如果按照`order_id`的奇数和偶数进行数据分片，一个单表查询的SQL如下：
+
+     ```sql
+     SELECT * FROM t_order WHERE order_id IN (1, 2);
+     ```
+
+     那么路由的结果应为：
+
+     ```sql
+     SELECT * FROM t_order_0 WHERE order_id IN (1, 2);
+     SELECT * FROM t_order_1 WHERE order_id IN (1, 2);
+     ```
+
+   - **笛卡尔积路由**：最复杂的情况，它无法根据绑定表的关系定位分片规则，因此非绑定表之间的关联查询需要拆解为笛卡尔积组合执行。如果上个示例中的SQL并未配置绑定表关系，那么路由的结果应为：
+
+     ```sql
+     SELECT * FROM t_order_0 o JOIN t_order_item_0 i ON o.order_id=i.order_id  WHERE order_id IN (1, 2);
+     SELECT * FROM t_order_0 o JOIN t_order_item_1 i ON o.order_id=i.order_id  WHERE order_id IN (1, 2);
+     SELECT * FROM t_order_1 o JOIN t_order_item_0 i ON o.order_id=i.order_id  WHERE order_id IN (1, 2);
+     SELECT * FROM t_order_1 o JOIN t_order_item_1 i ON o.order_id=i.order_id  WHERE order_id IN (1, 2);
+     ```
+
+2. **广播路由**：对于不携带分片键的SQL，则采取广播路由的方式。根据SQL类型又可以划分为全库表路由、全库路由、全实例路由、单播路由和阻断路由这5种类型
+
+   - **全库表路由**：用于处理对数据库中与其逻辑表相关的所有真实表的操作，主要包括不带分片键的DQL和DML，以及DDL。例如：
+
+     ```sql
+     SELECT * FROM t_order WHERE good_prority IN (1, 10);
+     ```
+
+     则会遍历所有数据库中的所有表，逐一匹配逻辑表和真实表名，能够匹配得上则执行。路由后成为
+
+     ```sql
+     SELECT * FROM t_order_0 WHERE good_prority IN (1, 10);
+     SELECT * FROM t_order_1 WHERE good_prority IN (1, 10);
+     SELECT * FROM t_order_2 WHERE good_prority IN (1, 10);
+     SELECT * FROM t_order_3 WHERE good_prority IN (1, 10);
+     ```
+
+   - **全库路由**：用于处理对数据库的操作，包括用于库设置的SET类型的数据库管理命令，以及TCL这样的事务控制语句。在这种情况下，会根据逻辑库的名字遍历所有符合名字匹配的真实库，并在真实库中执行该命令，例如：
+
+     ```sql
+     SET autocommit=0;
+     ```
+
+     在`t_order`中执行，`t_order`有2个真实库。则实际会在`t_order_0`和`t_order_1`上都执行这个命令
+
+   - **全实例路由**：用于DCL操作，授权语句针对的是数据库的实例。无论一个实例中包含多少个Schema，每个数据库的实例只执行一次。例如：
+
+     ```sql
+     CREATE USER customer@127.0.0.1 identified BY '123';
+     ```
+
+     这个命令将在所有的真实数据库实例中执行，以确保customer用户可以访问每一个实例。
+
+   - **单播路由**：用于获取某一真实表信息的场景，它仅需要从任意库中的任意真实表中获取数据即可。例如：
+
+     ```sql
+     DESCRIBE t_order;
+     ```
+
+     t_order的两个真实表t_order_0，t_order_1的描述结构相同，所以这个命令在任意真实表上选择执行一次
+
+   - **阻断路由**：用于屏蔽SQL对数据库的操作，例如：
+
+     ```sql
+     USE order_db;
+     ```
+
+     这个命令不会在真实数据库中执行，因为ShardingSphere采用的是逻辑Schema的方式，无需将切换数据库Schema的命令发送至数据库中
+
+<img src="./images/SQL路由.png" style="zoom:67%;" />
+
 ## 3.3.SQL改写
 
+开发者面向逻辑库与逻辑表书写的SQL，并不能够直接在真实的数据库中执行，SQL改写用于将逻辑SQL改写为在真实数据库中可以正确执行的SQL。 它包括正确性改写和优化改写两部分。
 
+1. **正确性改写**
+
+在包含分表的场景中，需要将分表配置中的逻辑表名称改写为路由之后所获取的真实表名称。仅分库则不需要表名称的改写。除此之外，还包括补列和分页信息修正等内容。从一个最简单的例子开始，若逻辑SQL为：
+
+```sql
+SELECT order_id FROM t_order WHERE order_id=1;
+```
+
+假设该SQL配置分片键order_id，并且order_id=1的情况，将路由至分片表1。那么改写之后的SQL应该为：
+
+```sql
+SELECT order_id FROM t_order_1 WHERE order_id=1; -- 真实拿到数据库执行的SQL
+```
+
+当然这是最简单的例子，只是将逻辑表改写为真实表，实际SQL中肯定需要结合SQL解析出来的语法树进行改写。例如：如果选择项中不包含结果归并时所需的列，则需要进行补列
+
+```sql
+SELECT order_id FROM t_order ORDER BY user_id;
+```
+
+由于原始SQL中并不包含需要在结果归并中需要获取的user_id，因此需要对SQL进行补列改写。补列之后的SQL是：
+
+```sql
+SELECT order_id, user_id AS ORDER_BY_DERIVED_0 FROM t_order ORDER BY user_id;
+```
+
+2. **优化改写**
+
+是在不影响查询正确性的情况下，对性能进行提升的有效手段。它分为单节点优化和流式归并优化。
+
+- 单节点优化：路由至单节点的SQL，则无需优化改写
+- 流式归并优化：包含`GROUP BY`的SQL增加`ORDER BY`以及和分组项相同的排序项和排序顺序，用于将内存归并转化为流式归并
+
+<img src="./images/SQL改写.png" style="zoom:80%;" />
 
 ## 3.4.SQL执行
 
+ShardingSphere采用一套自动化的执行引擎，它不是简单地将SQL通过JDBC直接发送至数据源执行；也并非直接将执行请求放入线程池去并发执行。它更关注平衡数据源连接创建以及内存占用所产生的消耗，以及最大限度地合理利用并发等问题。举个例子：如果一条SQL在经过ShardingSphere的分片后，需要操作某数据库实例下的200张表。 那么，是选择创建200个连接并行执行，还是选择创建一个连接串行执行呢？ShardingSphere就是为了解决维持这个平衡，提出了连接模式（Connection Mode）的概念，将其划分为内存限制模式（MEMORY_STRICTLY）和连接限制模式（CONNECTION_STRICTLY）两种类型
 
+- **内存限制模式**
+
+ShardingSphere对一次操作所耗费的数据库连接数量不做限制。 如果实际执行的SQL需要对某数据库实例中的200张表做操作，则对每张表创建一个新的数据库连接，并通过多线程的方式并发处理，以达成执行效率最大化。 并且在SQL满足条件情况下，优先选择流式归并（<u>以结果集游标下移进行结果归并的方式，称之为流式归并，它无需将结果数据全数加载至内存</u>），以防止出现内存溢出或避免频繁垃圾回收情况
+
+- **连接限制模式**
+
+ShardingSphere严格控制对一次操作所耗费的数据库连接数量。 如果实际执行的SQL需要对某数据库实例中的200张表做操作，那么只会创建唯一的数据库连接，并对其200张表串行处理。 如果一次操作中的分片散落在不同的数据库，仍然采用多线程处理对不同库的操作，但每个库的每次操作仍然只创建一个唯一的数据库连接。该模式始终选择内存归并
+
+那么，ShardingSphere是怎么确定使用哪种连接模式的呢？它是根据maxConnectionSizePerQuery配置项，结合当前路由结果，选择恰当的连接模式。 具体步骤如下：
+
+1. 将SQL的路由结果按照数据源的名称进行分组。
+
+2. 通过下图的公式，可以获得每个数据库实例在`maxConnectionSizePerQuery`的允许范围内，每个连接需要执行的SQL路由结果组，并计算出本次请求的最优连接模式。
+
+<img src="./images/计算SQL执行的连接模式.png" style="zoom:67%;" />
+
+内存限制模式适用于OLAP操作（<u>即联机分析处理，Online Analytical Processing，这种模式下语句的执行量不是考核标准，因为一条语句的执行时间可能会非常长，读取的数据也非常多</u>），可以通过放宽对数据库连接的限制提升系统吞吐量；连接限制模式适用于OLTP操作（<u>即联机事务处理，Online Transaction Processing，表示事务性非常高的系统，单个数据库每秒处理的Transaction往往超过几百个，或者是几千个，Select 语句的执行量每秒几千甚至几万个</u>），OLTP通常带有分片键，会路由到单一的分片，因此严格控制数据库连接，以保证在线系统数据库资源能够被更多的应用所使用。
+
+<img src="./images/SQL执行.png" style="zoom:70%;" />
 
 ## 3.5.结果归并
 
+将从各个数据节点获取的多数据结果集，组合成为一个结果集并正确的返回至请求客户端，称为结果归并。从结构划分，可分为流式归并、内存归并和装饰者归并。流式归并和内存归并是互斥的，装饰者归并可以在流式归并和内存归并之上做进一步的处理。
 
+- **流失归并**：每一次从结果集中获取到的数据，都能够通过逐条获取的方式返回正确的单条数据，它与数据库原生的返回结果集的方式最为契合；
+- **内存归并**：需要将结果集的所有数据都遍历并存储在内存中，再通过统一的分组、排序以及聚合等计算之后，再将其封装成为逐条访问的数据结果集返回；
+- **装饰者归并**：对所有的结果集归并进行统一的功能增强。
+
+结果归并从功能上分为**遍历、排序、分组、分页和聚合**5种类型，它们是组合而非互斥的关系，这里只记录两个比较难理解的结果归并：
+
+1. **排序归并**：在SQL中存在`ORDER BY`语句，因此每个数据结果集自身是有序的，因此只需要将数据结果集当前游标指向的数据值进行排序即可。 相当于对多个有序的数组进行排序，归并排序是最适合此场景的排序算法
+
+例如：下图展示了3张表返回的数据结果集，每个数据结果集已经根据分数排序完毕，但是3个数据结果集之间是无序的。 将3个数据结果集的当前游标指向的数据值进行排序，并放入优先级队列，t_score_0的第一个数据值最大，t_score_2的第一个数据值次之，t_score_1的第一个数据值最小，因此优先级队列根据t_score_0，t_score_2和t_score_1的方式排序队列。
+
+![](./images/排序归并_1.png)
+
+下图则展现了进行next调用的时候，排序归并是如何进行的。 通过图中我们可以看到，当进行第一次next调用时，排在队列首位的t_score_0将会被弹出队列，并且将当前游标指向的数据值（也就是100）返回至查询客户端，并且将游标下移一位之后，重新放入优先级队列。 而优先级队列也会根据t_score_0的当前数据结果集指向游标的数据值（这里是90）进行排序，根据当前数值，t_score_0排列在队列的最后一位。 之前队列中排名第二的t_score_2的数据结果集则自动排在了队列首位。在进行第二次next时，只需要将目前排列在队列首位的t_score_2弹出队列，并且将其数据结果集游标指向的值返回至客户端，并下移游标，继续加入队列排队，以此类推。 当一个结果集中已经没有数据了，则无需再次加入队列。
+
+<img src="./images/排序归并_2.png" style="zoom:67%;" />
+
+2. **分组排序**：要求SQL的**排序项**与**分组项**的字段以及排序类型（ASC或DESC）必须保持一致，否则只能通过内存归并才能保证其数据的正确性。
+
+例如：假设根据科目分片，表结构中包含考生的姓名（为了简单起见，不考虑重名的情况）和分数。通过SQL获取每位考生的总分，可通过如下SQL：
+
+```sql
+SELECT name, SUM(score) FROM t_score GROUP BY name ORDER BY name;
+```
+
+在分组项与排序项完全一致的情况下，取得的数据是连续的，分组所需的数据全数存在于各个数据结果集的当前游标所指向的数据值，因此可以采用流式归并。如下图所示。
+
+![](./images/分组排序_1.png)
+
+进行归并时，逻辑与排序归并类似。 当进行第一次next调用时，排在队列首位的t_score_java将会被弹出队列，并且将分组值同为“Jetty”的其他结果集中的数据一同弹出队列。 在获取了所有的姓名为“Jetty”的同学的分数之后，进行累加操作，那么，在第一次next调用结束后，取出的结果集是“Jetty”的分数总和。 与此同时，所有的数据结果集中的游标都将下移至数据值“Jetty”的下一个不同的数据值，并且根据数据结果集当前游标指向的值进行重排序。 因此，包含名字顺着第二位的“John”的相关数据结果集则排在的队列的前列。
+
+![](./images/分组排序_2.png)
+
+流式分组归并与排序归并的区别仅仅在于两点：
+
+1. 它会一次性的将多个数据结果集中的分组项相同的数据全数取出。
+2. 它需要根据聚合函数的类型进行聚合计算。
+
+而对于对于分组项与排序项不一致的情况，由于需要获取分组的相关的数据值并非连续的，因此无法使用流式归并，需要将所有的结果集数据加载至内存中进行分组和聚合。 例如，若通过以下SQL获取每位考生的总分并按照分数从高至低排序：
+
+```sql
+SELECT name, SUM(score) FROM t_score GROUP BY name ORDER BY score DESC;
+```
 
 # 4.sharding-jdbc运用配置
 

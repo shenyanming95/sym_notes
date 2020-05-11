@@ -1190,37 +1190,128 @@ final List<BeanPostProcessor>beanPostProcessors = new ArrayList<BeanPostProcesso
 
 ### 2.3.2.InstantiationAwareBeanPostProcessor
 
+InstantiationAwareBeanPostProcessor接口是BeanPostProcessor的子接口，因此它包含了BeanPostProcessor在spring初始化Bean时的作用。但是，它自己提供了3个方法，用在spring实例化Bean时
 
+```java
+public interface InstantiationAwareBeanPostProcessor extends BeanPostProcessor {
+ /**
+  * 在spring准备反射实例化Bean之前会调用。可以在这个方法自己实例化Bean
+  * spring发现返回值不为null时，会直接返回，不再自己实例化Bean
+  */
+  Object postProcessBeforeInstantiation(Class<?> beanClass, String beanName) 
+    throws BeansException;
+  
+ /**
+  * 在spring实例化Bean之后调用，此方法会决定spring要不要接下去为实例好的Bean进行
+  * 属性赋值，当为false时，spring就直接将方法返回，不会为该Bean属性赋值
+  */
+  boolean postProcessAfterInstantiation(Object bean, String beanName) 
+    throws BeansException;
+  
+ /**
+  *在spring为实例好的Bean属性赋值之前被调用，如果此方法返回null，spring就不会为
+  * Bean进行属性赋值。参数pvs就是待赋值的属性
+  */
+  PropertyValues postProcessPropertyValues(PropertyValues pvs, 
+     PropertyDescriptor[] pds, Object bean, String beanName) throws BeansException;
+}
+```
 
+### 2.3.3.SmartInstantiationAwareBeanPostProcessor
 
+SmartInstantiationAwareBeanPostProcessor继承自[InstantiationAwareBeanPostProcessor](#2.3.2.InstantiationAwareBeanPostProcessor)，所以它包含了原先5个方法用来实例化Bean + 初始化Bean的功能，然后自己额外增加了3个方法：
 
+```java
+public interface SmartInstantiationAwareBeanPostProcessor extends 
+	InstantiationAwareBeanPostProcessor {
 
+   Class<?> predictBeanType(Class<?> beanClass, String beanName);
 
+   Constructor<?>[] determineCandidateConstructors(Class<?> beanClass, String beanName) 
 
+   Object getEarlyBeanReference(Object bean, String beanName);
+}
 
+```
 
+### 2.3.4.MergedBeanDefinitionPostProcessor
 
+。。。
 
+### 2.3.5.DestructionAwareBeanPostProcessor
 
+。。。
 
+## 2.4.工厂级生命周期接口
 
+### 2.4.1.BeanFactoryPostProcessor
 
+BeanFactoryPostProcessor是BeanFactory后置处理器，作用于所有BeanDefinition加载后，Bean实例化前，主要是修改BeanDefinition或对BeanFactory作定制化操作（不建议在这边初始化Bean），在spring容器启动时它会自动被注册调用。源码为：
 
+```java
+public interface BeanFactoryPostProcessor {
+   void postProcessBeanFactory(ConfigurableListableBeanFactory beanFactory) 
+}
+```
 
+spring提供了几个常用的 BeanFactoryPostProcessor 实现类： 
 
+1. PropertyPlaceholderConfigurer
 
+2. PropertyOverrideConfigurer
 
+其中 PropertyPlaceholderConfigurer 允许在 XML 配置文件中使用占位符并将这些占位符所代表的资源单独配置到简单的 properties 文件中来加载；PropertyOverrideConfigurer 则允许我们使用占位符来明确表明bean 定义中的 property 与 properties 文件中的各配置项之间的对应关系。
 
+### 2.4.2.BeanDefinitionRegistryPostProcessor
 
+BeanDefinitionRegistryPostProcessor继承于BeanFactoryPostProcessor接口，所以它也可以作为Bean工厂的后置处理器。额外的，此接口还提供了一个方法postProcessBeanDefinitionRegistry()，它可以在BeanDefinitionRegistry被初始化后，修改其内部的BeanDefinition，注意此时spring尚未实例化任何Bean，这个接口比BeanFactoryPostProcessor还快执行
 
+```java
+public interface BeanDefinitionRegistryPostProcessor extends BeanFactoryPostProcessor{
+   void postProcessBeanDefinitionRegistry(BeanDefinitionRegistry registry) 
+}
+```
 
+## 2.5.spring底层运用例子
 
+spring除了将Bean生命周期接口提供给开发者使用，它内部也大量运用了这些Bean生命周期接口！
 
+### 2.5.1.ApplicationContextAwareProcessor
 
+```java
+private void invokeAwareInterfaces(Object bean) {
+  if (bean instanceof Aware) {
+    if (bean instanceof EnvironmentAware) {
+      ((EnvironmentAware) bean).setEnvironment(this.applicationContext.getEnvironment());
+    }
+    if (bean instanceof EmbeddedValueResolverAware) {
+      ((EmbeddedValueResolverAware)bean).
+        	setEmbeddedValueResolver(this.embeddedValueResolver);
+    }
+    if (bean instanceof ResourceLoaderAware) {
+      ((ResourceLoaderAware) bean).setResourceLoader(this.applicationContext);
+    }
+    if (bean instanceof ApplicationEventPublisherAware) {
+      ((ApplicationEventPublisherAware)bean).
+        	setApplicationEventPublisher(this.applicationContext);
+    }
+    if (bean instanceof MessageSourceAware) {
+      ((MessageSourceAware) bean).setMessageSource(this.applicationContext);
+    }
+    if (bean instanceof ApplicationContextAware) {
+      ((ApplicationContextAware) bean).setApplicationContext(this.applicationContext);
+    }
+  }
+}
+```
 
+### 2.5.2.InitDestroyAnnotationBeanPostProcessor
 
+回调那些初始化Bean和销毁Bean的注解方法
 
+### 2.5.3.AutowiredAnnotationBeanPostProcessor
 
+@Autowire和@Value注解的后置处理器
 
 
 

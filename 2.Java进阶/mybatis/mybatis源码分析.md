@@ -1,4 +1,4 @@
-mybatis源码分析只针对核心流程和核心接口，类似的xml解析过程和动态SQL拼接组装过程忽略~！
+mybatis源码分析只针对核心流程和核心接口，类似的xml解析详情和动态SQL拼接组装过程忽略~！
 
 # 1.SqlSession执行流程
 
@@ -21,26 +21,26 @@ mybatis源码分析只针对核心流程和核心接口，类似的xml解析过�
 private void parseConfiguration(XNode root) {
   // 依次将sqlMapConfig.xml的配置解析出来
   try {
-    propertiesElement(root.evalNode("properties"));
-    Properties settings = settingsAsProperties(root.evalNode("settings"));
-    loadCustomVfs(settings);
-    loadCustomLogImpl(settings);
-    // 解析别名, 跳转链接
-    typeAliasesElement(root.evalNode("typeAliases"));
-    // 解析插件, 跳转链接
-    pluginElement(root.evalNode("plugins"));
-    objectFactoryElement(root.evalNode("objectFactory"));
-    objectWrapperFactoryElement(root.evalNode("objectWrapperFactory"));
-    reflectorFactoryElement(root.evalNode("reflectorFactory"));
-    settingsElement(settings);
-    environmentsElement(root.evalNode("environments"));
-    databaseIdProviderElement(root.evalNode("databaseIdProvider"));
-    // 解析类型处理器, 跳转链接
-    typeHandlerElement(root.evalNode("typeHandlers"));
-    // 解析mapper配置文件, 跳转连接
-    mapperElement(root.evalNode("mappers"));
+      propertiesElement(root.evalNode("properties"));
+      Properties settings = settingsAsProperties(root.evalNode("settings"));
+      loadCustomVfs(settings);
+      loadCustomLogImpl(settings);
+      // 解析别名
+      typeAliasesElement(root.evalNode("typeAliases"));
+      // 解析插件
+      pluginElement(root.evalNode("plugins"));
+      objectFactoryElement(root.evalNode("objectFactory"));
+      objectWrapperFactoryElement(root.evalNode("objectWrapperFactory"));
+      reflectorFactoryElement(root.evalNode("reflectorFactory"));
+      settingsElement(settings);
+      environmentsElement(root.evalNode("environments"));
+      databaseIdProviderElement(root.evalNode("databaseIdProvider"));
+      // 解析类型处理器
+      typeHandlerElement(root.evalNode("typeHandlers"));
+      // 解析mapper配置文件
+      mapperElement(root.evalNode("mappers"));
   } catch (Exception e) {
-    throw new BuilderException();
+    	throw new BuilderException();
   }
 }
 ```
@@ -51,8 +51,8 @@ private void parseConfiguration(XNode root) {
 
 ```java
 public class TypeAliasRegistry {
-  // 所有的别名信息都会放置到这个Map上
-  private final Map<String, Class<?>> typeAliases = new HashMap<>();
+    // 所有的别名信息都会放置到这个Map上
+    private final Map<String, Class<?>> typeAliases = new HashMap<>();
 }
 ```
 
@@ -67,25 +67,25 @@ private void typeAliasesElement(XNode parent) {
       // 来注册. TypeAliasRegistry会获取指定包下的所有Class, 判断它是否有注解Alias,
       // 有的话取注解Alias的值, 没有则调用Class.getSimpleName()取类名
       if ("package".equals(child.getName())) {
-        String typeAliasPackage = child.getStringAttribute("name");
-        configuration.getTypeAliasRegistry().registerAliases(typeAliasPackage);
+          String typeAliasPackage = child.getStringAttribute("name");
+          configuration.getTypeAliasRegistry().registerAliases(typeAliasPackage);
       } else {
-        // 如果是单个别名配置, 取alias属性和type属性, 其中alias就是用户配置的别名,
-        // type就是类名. mybatis在这里解析, 如果alias不为空, 则取用户配置的别名;
-        // 否则就按照类名来获取.
-        String alias = child.getStringAttribute("alias");
-        String type = child.getStringAttribute("type");
-        try {
-          Class<?> clazz = Resources.classForName(type);
-          if (alias == null) {
-            typeAliasRegistry.registerAlias(clazz);
-          } else {
-            typeAliasRegistry.registerAlias(alias, clazz);
+          // 如果是单个别名配置, 取alias属性和type属性, 其中alias就是用户配置的别名,
+          // type就是类名. mybatis在这里解析, 如果alias不为空, 则取用户配置的别名;
+          // 否则就按照类名来获取.
+          String alias = child.getStringAttribute("alias");
+          String type = child.getStringAttribute("type");
+          try {
+              Class<?> clazz = Resources.classForName(type);
+              if (alias == null) {
+                typeAliasRegistry.registerAlias(clazz);
+              } else {
+                typeAliasRegistry.registerAlias(alias, clazz);
+              }
+          } catch (ClassNotFoundException e) {
+            throw new BuilderException();
           }
-        } catch (ClassNotFoundException e) {
-          throw new BuilderException();
-        }
-      }
+       }
     }
   }
 }
@@ -97,8 +97,8 @@ private void typeAliasesElement(XNode parent) {
 
 ```java
 public class InterceptorChain {
-  // 很简单, 就是把所有插件放置在集合中
-  private final List<Interceptor> interceptors = new ArrayList<>();
+    // 很简单, 就是把所有插件放置在集合中
+    private final List<Interceptor> interceptors = new ArrayList<>();
 }
 ```
 
@@ -109,17 +109,17 @@ public class InterceptorChain {
 private void pluginElement(XNode parent) throws Exception {
   if (parent != null) {
     for (XNode child : parent.getChildren()) {
-      // 解析<plugin>的interceptor属性, 获取到插件的全类名
-      String interceptor = child.getStringAttribute("interceptor");
-      // 获取<plugin>旗下的属性配置, 如果有的话
-      Properties properties = child.getChildrenAsProperties();
-      // 通过反射获取到插件的实例
-      Interceptor interceptorInstance = (Interceptor) 
-        resolveClass(interceptor).getDeclaredConstructor().newInstance();
-      // 为插件实例设置属性
-      interceptorInstance.setProperties(properties);
-      // 将其添加到全局配置类Configuration的插件链InterceptorChain上
-      configuration.addInterceptor(interceptorInstance);
+        // 解析<plugin>的interceptor属性, 获取到插件的全类名
+        String interceptor = child.getStringAttribute("interceptor");
+        // 获取<plugin>旗下的属性配置, 如果有的话
+        Properties properties = child.getChildrenAsProperties();
+        // 通过反射获取到插件的实例
+        Interceptor interceptorInstance = (Interceptor) 
+          resolveClass(interceptor).getDeclaredConstructor().newInstance();
+        // 为插件实例设置属性
+        interceptorInstance.setProperties(properties);
+        // 将其添加到全局配置类Configuration的插件链InterceptorChain上
+        configuration.addInterceptor(interceptorInstance);
     }
   }
 }
@@ -131,14 +131,20 @@ mybatis提供了类型注册器TypeHandlerRegistry，它可以注册类型处理
 
 ```java
 public final class TypeHandlerRegistry {
+  
   private final Map<JdbcType, TypeHandler<?>>  jdbcTypeHandlerMap = 
     new EnumMap<>(JdbcType.class);
+  
   private final Map<Type, Map<JdbcType, TypeHandler<?>>> typeHandlerMap = 
     new ConcurrentHashMap<>();
+  
   private final TypeHandler<Object> unknownTypeHandler = new UnknownTypeHandler(this);
+  
   private final Map<Class<?>, TypeHandler<?>> allTypeHandlersMap = new HashMap<>();
+  
   private static final Map<JdbcType, TypeHandler<?>> NULL_TYPE_HANDLER_MAP = 
     Collections.emptyMap();
+  
   private Class<? extends TypeHandler> defaultEnumTypeHandler = EnumTypeHandler.class;
 }
 ```
@@ -153,26 +159,26 @@ private void typeHandlerElement(XNode parent) {
       // 如果用户配置了<package>标签, 则解析它指定的包路径, 获取到该包旗下所有的
       // Class类型, 如果带有MappedTypes注解, 就按照注解配置来注册, 否则取它的原生实例
       if ("package".equals(child.getName())) {
-        String typeHandlerPackage = child.getStringAttribute("name");
-        typeHandlerRegistry.register(typeHandlerPackage);
+          String typeHandlerPackage = child.getStringAttribute("name");
+          typeHandlerRegistry.register(typeHandlerPackage);
       } else {
-        // 如果用户一一指定了, 则分别取javaType、jdbcType 和 handler, 获取到它们的
-        // Class对象, 然后注册到TypeHandlerRegistry中
-        String javaTypeName = child.getStringAttribute("javaType");
-        String jdbcTypeName = child.getStringAttribute("jdbcType");
-        String handlerTypeName = child.getStringAttribute("handler");
-        Class<?> javaTypeClass = resolveClass(javaTypeName);
-        JdbcType jdbcType = resolveJdbcType(jdbcTypeName);
-        Class<?> typeHandlerClass = resolveClass(handlerTypeName);
-        if (javaTypeClass != null) {
-          if (jdbcType == null) {
-            typeHandlerRegistry.register(javaTypeClass, typeHandlerClass);
+          // 如果用户一一指定了, 则分别取javaType、jdbcType 和 handler, 获取到它们的
+          // Class对象, 然后注册到TypeHandlerRegistry中
+          String javaTypeName = child.getStringAttribute("javaType");
+          String jdbcTypeName = child.getStringAttribute("jdbcType");
+          String handlerTypeName = child.getStringAttribute("handler");
+          Class<?> javaTypeClass = resolveClass(javaTypeName);
+          JdbcType jdbcType = resolveJdbcType(jdbcTypeName);
+          Class<?> typeHandlerClass = resolveClass(handlerTypeName);
+          if (javaTypeClass != null) {
+            if (jdbcType == null) {
+              typeHandlerRegistry.register(javaTypeClass, typeHandlerClass);
+            } else {
+              typeHandlerRegistry.register(javaTypeClass, jdbcType, typeHandlerClass);
+            }
           } else {
-            typeHandlerRegistry.register(javaTypeClass, jdbcType, typeHandlerClass);
+            typeHandlerRegistry.register(typeHandlerClass);
           }
-        } else {
-          typeHandlerRegistry.register(typeHandlerClass);
-        }
       }
     }
   }
@@ -185,9 +191,9 @@ private void typeHandlerElement(XNode parent) {
 
 ```java
 public class MapperRegistry {
-  private final Configuration config;
-  // Mapper接口就是保存在这里
-  private final Map<Class<?>, MapperProxyFactory<?>> knownMappers = new HashMap<>();
+    private final Configuration config;
+    // Mapper接口就是保存在这里
+    private final Map<Class<?>, MapperProxyFactory<?>> knownMappers = new HashMap<>();
 }
 ```
 
@@ -201,34 +207,34 @@ private void mapperElement(XNode parent) throws Exception {
       // 如果是<package>子标签, 会加载该包下的所有Class(只获取接口), 然后靠它创建出
       // MapperProxyFactory对象, 一起保存到MapperRegistry的knownMappers属性中
       if ("package".equals(child.getName())) {
-        String mapperPackage = child.getStringAttribute("name");
-        configuration.addMappers(mapperPackage);
+          String mapperPackage = child.getStringAttribute("name");
+          configuration.addMappers(mapperPackage);
       } else {
-        // 如果是<mapper>子标签, 取出它的三个属性.
-        String resource = child.getStringAttribute("resource");
-        String url = child.getStringAttribute("url");
-        String mapperClass = child.getStringAttribute("class");
-        if (resource != null && url == null && mapperClass == null) {
-          // 如果配置的是resource属性, 即配置了*mapper.xml, 则根据它指定的路径生成一个
-          // XMLMapperBuilder去解析
-          ErrorContext.instance().resource(resource);
-          InputStream inputStream = Resources.getResourceAsStream(resource);
-          XMLMapperBuilder mapperParser = new XMLMapperBuilder(inputStream,
-                                                               configuration, resource, configuration.getSqlFragments());
-          mapperParser.parse();
+          // 如果是<mapper>子标签, 取出它的三个属性.
+          String resource = child.getStringAttribute("resource");
+          String url = child.getStringAttribute("url");
+          String mapperClass = child.getStringAttribute("class");
+          if (resource != null && url == null && mapperClass == null) {
+            // 如果配置的是resource属性, 即配置了*mapper.xml, 则根据它指定的路径生成一个
+            // XMLMapperBuilder去解析
+            ErrorContext.instance().resource(resource);
+            InputStream inputStream = Resources.getResourceAsStream(resource);
+            XMLMapperBuilder mapperParser = new XMLMapperBuilder(inputStream,
+                                configuration, resource, configuration.getSqlFragments());
+            mapperParser.parse();
         } else if (resource == null && url != null && mapperClass == null) {
-          // 如果配置的url属性, 生成XMLMapperBuilder去解析. 这种方式比较少
-          ErrorContext.instance().resource(url);
-          InputStream inputStream = Resources.getUrlAsStream(url);
-          XMLMapperBuilder mapperParser = new XMLMapperBuilder(inputStream, 
-                                                               configuration, url, configuration.getSqlFragments());
-          mapperParser.parse();
+            // 如果配置的url属性, 生成XMLMapperBuilder去解析. 这种方式比较少
+            ErrorContext.instance().resource(url);
+            InputStream inputStream = Resources.getUrlAsStream(url);
+            XMLMapperBuilder mapperParser = new XMLMapperBuilder(inputStream, 
+                         configuration, url, configuration.getSqlFragments());
+            mapperParser.parse();
         } else if (resource == null && url == null && mapperClass != null) {
-          // 如果配置的是class属性, 直接将其添加到MapperRegistry中
-          Class<?> mapperInterface = Resources.classForName(mapperClass);
-          configuration.addMapper(mapperInterface);
+            // 如果配置的是class属性, 直接将其添加到MapperRegistry中
+            Class<?> mapperInterface = Resources.classForName(mapperClass);
+            configuration.addMapper(mapperInterface);
         } else {
-          throw new BuilderException();
+          	throw new BuilderException();
         }
 ```
 
@@ -239,9 +245,9 @@ private void mapperElement(XNode parent) throws Exception {
 ```java
 //源码：SqlSessionFactoryBuilder -- 91行
 public SqlSessionFactory build(Configuration config) {
-  // 参数config就是解析xml获取到的对象, 通过它来实例化DefaultSqlSessionFactory,
-  // 这步执行完, 我们就可以获取到一个SqlSessionFactory实例
-  return new DefaultSqlSessionFactory(config);
+    // 参数config就是解析xml获取到的对象, 通过它来实例化DefaultSqlSessionFactory,
+    // 这步执行完, 我们就可以获取到一个SqlSessionFactory实例
+    return new DefaultSqlSessionFactory(config);
 }
 ```
 
@@ -252,10 +258,9 @@ public SqlSessionFactory build(Configuration config) {
 ```java
 //源码：DefaultSqlSessionFactory -- 46行
 public SqlSession openSession() {
-  // 实际调用openSessionFromDataSource()方法创建, 这边的ExecutorType为
-  // ExecutorType.SIMPLE；
-  return openSessionFromDataSource(configuration.getDefaultExecutorType(), 
-                                   null, false);
+    // 实际调用openSessionFromDataSource()方法创建, 这边的ExecutorType为
+    // ExecutorType.SIMPLE；
+    return openSessionFromDataSource(configuration.getDefaultExecutorType(), null, false);
 }
 ```
 
@@ -264,21 +269,24 @@ public SqlSession openSession() {
 ```java
 //源码：DefaultSqlSessionFactory -- 90行
 private SqlSession openSessionFromDataSource(ExecutorType execType, 
-                                             TransactionIsolationLevel level, boolean autoCommit) {
+               TransactionIsolationLevel level, boolean autoCommit) {
   Transaction tx = null;
   try {
     // 获取在sqlMapConfig.xml配置的Environment信息
     final Environment environment = configuration.getEnvironment();
+    
     // 通过Environment.getTransactionFactory()获取事务工厂, 默认为
     // JdbcTransactionFactory；最后通过事务工厂new一个事务, 默认为JdbcTransaction
     final TransactionFactory transactionFactory = 
       getTransactionFactoryFromEnvironment(environment);
-    tx = transactionFactory.newTransaction(environment.getDataSource(), level, 
-                                           autoCommit);
+    tx = transactionFactory.newTransaction(environment.getDataSource(), level, autoCommit);
+    
     // 通过全局配置对象Configuration创建出Executor实例, 转看newExecutor()方法
     final Executor executor = configuration.newExecutor(tx, execType);
+    
     // 最后new一个DefaultSqlSession实例
     return new DefaultSqlSession(configuration, executor, autoCommit);
+    
   } catch (Exception e) {
     // 如果出现异常, 将事务关闭
     closeTransaction(tx); 
@@ -297,21 +305,22 @@ public Executor newExecutor(Transaction transaction, ExecutorType executorType) 
   // ExecutorType为空时至少有个默认值, 即ExecutorType.SIMPLE
   executorType = executorType == null ? defaultExecutorType : executorType;
   executorType = executorType == null ? ExecutorType.SIMPLE : executorType;
+  
   Executor executor;
   if (ExecutorType.BATCH == executorType) {
-    // 如果批量操作, 则创建BatchExecutor对象, this指的是Configuration
-    executor = new BatchExecutor(this, transaction);
+      // 如果批量操作, 则创建BatchExecutor对象, this指的是Configuration
+      executor = new BatchExecutor(this, transaction);
   } else if (ExecutorType.REUSE == executorType) {
-    // 如果是重用类型, 则创建ReuseExecutor对象, this指的是Configuration
-    executor = new ReuseExecutor(this, transaction);
+      // 如果是重用类型, 则创建ReuseExecutor对象, this指的是Configuration
+      executor = new ReuseExecutor(this, transaction);
   } else {
-    // 其它情况都只创建SimpleExecutor对象, this指的是Configuration
-    executor = new SimpleExecutor(this, transaction);
+      // 其它情况都只创建SimpleExecutor对象, this指的是Configuration
+      executor = new SimpleExecutor(this, transaction);
   }
   if (cacheEnabled) {
-    // cacheEnabled是Configuration的成员变量, 表示mybatis一级缓存, 默认开启, 即true
-    // 这边采用了装饰者模式, 用CachingExecutor去装饰前一步创建的SimpleExecutor
-    executor = new CachingExecutor(executor);
+      // cacheEnabled是Configuration的成员变量, 表示mybatis一级缓存, 默认开启, 即true
+      // 这边采用了装饰者模式, 用CachingExecutor去装饰前一步创建的SimpleExecutor
+      executor = new CachingExecutor(executor);
   }
   // 用插件Interceptor去装饰执行器后返回, 很多插件例如PageHelp就会在这里返回执行器的代理
   // 对象, 进而改变调用流程
@@ -328,29 +337,29 @@ public Executor newExecutor(Transaction transaction, ExecutorType executorType) 
 
 ```java
 public <E> List<E> selectList(String statement) {
-  // 原生mybatis使用, 这个statement就是mapper.xml的命名空间+sql标签的Id. 如果是注解
-  // 则是类全名 + 方法名, 然后调用下面的重载方法
-  return this.selectList(statement, null);
+    // 原生mybatis使用, 这个statement就是mapper.xml的命名空间+sql标签的Id. 如果是注解
+    // 则是类全名 + 方法名, 然后调用下面的重载方法
+    return this.selectList(statement, null);
 }
 public <E> List<E> selectList(String statement, Object parameter) {
-  // 这边就多了一个分页组件RowBounds的创建, 继续调用下面的重载方法
-  return this.selectList(statement, parameter, RowBounds.DEFAULT);
+    // 这边就多了一个分页组件RowBounds的创建, 继续调用下面的重载方法
+    return this.selectList(statement, parameter, RowBounds.DEFAULT);
 }
 //源码：DefaultSqlSession -- 144行
 public <E> List<E> selectList(String statement, Object parameter, RowBounds rowBounds) {
   try {
-    // 通过Configuration的成员变量mappedStatements(类型为StrictMap)获取对应的
-    // MappedStatement对象(每一份SQL, mybatis都会定义一个MappedStatement)
-    MappedStatement ms = configuration.getMappedStatement(statement);
-    // wrapCollection()包裹类型是集合或数组的参数, mybatis会重新创建一个Map去包裹参数值;
-    // 如果参数非集合非数组, 参数值就直接返回. 然后通过上一步创建的Executor来执行SQL.
-    // 这边还会传入一个Executor.NO_RESULT_HANDLER, 默认为null
-    return executor.query(ms, wrapCollection(parameter), rowBounds, 
-                          Executor.NO_RESULT_HANDLER);
+      // 通过Configuration的成员变量mappedStatements(类型为StrictMap)获取对应的
+      // MappedStatement对象(每一份SQL, mybatis都会定义一个MappedStatement)
+      MappedStatement ms = configuration.getMappedStatement(statement);
+      // wrapCollection()包裹类型是集合或数组的参数, mybatis会重新创建一个Map去包裹参数值;
+      // 如果参数非集合非数组, 参数值就直接返回. 然后通过上一步创建的Executor来执行SQL.
+      // 这边还会传入一个Executor.NO_RESULT_HANDLER, 默认为null
+      return executor.query(ms, wrapCollection(parameter), rowBounds, 
+                            Executor.NO_RESULT_HANDLER);
   } catch (Exception e) {
-    throw ExceptionFactory.wrapException();
+    	throw ExceptionFactory.wrapException();
   } finally {
-    ErrorContext.instance().reset();
+    	ErrorContext.instance().reset();
   }
 }
 ```
@@ -362,12 +371,14 @@ public <E> List<E> selectList(String statement, Object parameter, RowBounds rowB
 ```java
 //源码：CachingExecutor -- 80行
 public <E> List<E> query(MappedStatement ms, Object parameterObject, 
-                         RowBounds rowBounds, ResultHandler resultHandler) throws SQLException {
+  	RowBounds rowBounds, ResultHandler resultHandler) throws SQLException {
   // 从MappedStatement中获取绑定的SQL语句, 为其附上参数值, 转到getBoundSql()
   BoundSql boundSql = ms.getBoundSql(parameterObject);
+  
   // 通过MappedStatement的id①、分页RowBounds的值②、待执行的sql③、执行sql的参数值④
   // 和当前环境Environment的id⑤. 将这些值保存到CacheKey对象内并且计算它们hash值总和.
   CacheKey key = createCacheKey(ms, parameterObject, rowBounds, boundSql);
+  
   // 调用当前类的重载方法, 转到query()
   return query(ms, parameterObject, rowBounds, resultHandler, key, boundSql);
 }
@@ -383,18 +394,20 @@ public BoundSql getBoundSql(Object parameterObject) {
   // ParameterMapping和实际参数值parameterObject
   BoundSql boundSql = sqlSource.getBoundSql(parameterObject);
   List<ParameterMapping> parameterMappings = boundSql.getParameterMappings();
+  
   // 如果没有参数映射(即SQL没有查询条件), 创建一个没有参数映射的BoundSql
   if (parameterMappings == null || parameterMappings.isEmpty()) {
     boundSql = new BoundSql(configuration, boundSql.getSql(), 
                             parameterMap.getParameterMappings(), parameterObject);
   }
+  
   // 这边检查当前的SQL标签, 是否有配置嵌套的ResultMap
   for (ParameterMapping pm : boundSql.getParameterMappings()) {
-    String rmId = pm.getResultMapId();
-    if (rmId != null) {
-      ResultMap rm = configuration.getResultMap(rmId);
-      if (rm != null) hasNestedResultMaps |= rm.hasNestedResultMaps();
-    }
+      String rmId = pm.getResultMapId();
+      if (rmId != null) {
+        ResultMap rm = configuration.getResultMap(rmId);
+        if (rm != null) hasNestedResultMaps |= rm.hasNestedResultMaps();
+      }
   }
   return boundSql;
 }
@@ -407,7 +420,7 @@ public BoundSql getBoundSql(Object parameterObject) {
 ```java
 //源码：CachingExecutor -- 93行
 public <E> List<E> query(MappedStatement ms, Object parameterObject, 
-                         RowBounds rowBounds, ResultHandler resultHandler, CacheKey key, BoundSql boundSql){
+       RowBounds rowBounds, ResultHandler resultHandler, CacheKey key, BoundSql boundSql){
   // 从MappedStatement中获取缓存Cache, 这个缓存就是Mybatis的二级缓存
   Cache cache = ms.getCache();
   if (cache != null) {
@@ -438,7 +451,7 @@ CacheExecutor对BaseExecutor做了一层包装（这是mybatis在构建缓存模
 ```java
 //源码：BaseExecutor -- 141行
 public <E> List<E> query(MappedStatement ms, Object parameter, RowBounds rowBounds, 
-                         ResultHandler resultHandler, CacheKey key, BoundSql boundSql) {
+        ResultHandler resultHandler, CacheKey key, BoundSql boundSql) {
   if (closed) {
     throw new ExecutorException("Executor was closed.");
   }
@@ -452,33 +465,35 @@ public <E> List<E> query(MappedStatement ms, Object parameter, RowBounds rowBoun
     // queryStack是BaseExector的一个成员变量, 未加任何修饰, 默认值为0
     // 提醒：每个SqlSession有各自的Executor, 不同SqlSession互不影响.
     queryStack++;
+    
     // localCache是BaseExecutor的成员变量, 类型为：PerpetualCache. 它实际上就是mybatis
     // 的一级缓存, sqlSession级别. 如果resultHandler为空, 先从一级缓存中取值, 否则为null
     list = resultHandler == null ? (List<E>) localCache.getObject(key) : null;
+    
     if (list != null) {
-      // 一级缓存中取到值, 是处理存储过程的情况, 这里忽略掉.
-      handleLocallyCachedOutputParameters(ms, key, parameter, boundSql);
+        // 一级缓存中取到值, 是处理存储过程的情况, 这里忽略掉.
+        handleLocallyCachedOutputParameters(ms, key, parameter, boundSql);
     } else {
-      // 一级缓存未取到值, 查询数据库, 转到queryFromDatabase()
-      list = queryFromDatabase(ms, parameter, rowBounds, resultHandler, key, boundSql);
+        // 一级缓存未取到值, 查询数据库, 转到queryFromDatabase()
+        list = queryFromDatabase(ms, parameter, rowBounds, resultHandler, key, boundSql);
     }
   } finally {
-    // 查询栈减1
-    queryStack--;
+      // 查询栈减1
+      queryStack--;
   }
   if (queryStack == 0) {
-    // 遍历所有DeferredLoad, 执行延迟加载
-    for (DeferredLoad deferredLoad : deferredLoads) {
-      deferredLoad.load();
-    }
-    // 清空队列
-    deferredLoads.clear();
+      // 遍历所有DeferredLoad, 执行延迟加载
+      for (DeferredLoad deferredLoad : deferredLoads) {
+        deferredLoad.load();
+      }
+      // 清空队列
+      deferredLoads.clear();
 
-    // 如果缓存级别为SQL语句级别, 则清空本地缓存.
-    // 缓存级别只有两种：SESSION(会话级)、STATEMENT(SQL语句级别)
-    if (configuration.getLocalCacheScope() == LocalCacheScope.STATEMENT) {
-      clearLocalCache();
-    }
+      // 如果缓存级别为SQL语句级别, 则清空本地缓存.
+      // 缓存级别只有两种：SESSION(会话级)、STATEMENT(SQL语句级别)
+      if (configuration.getLocalCacheScope() == LocalCacheScope.STATEMENT) {
+        clearLocalCache();
+      }
   }
   return list;
 }
@@ -491,7 +506,7 @@ public <E> List<E> query(MappedStatement ms, Object parameter, RowBounds rowBoun
 ```java
 //源码：BaseExecutor -- 320行
 private <E> List<E> queryFromDatabase(MappedStatement ms, Object parameter, 
-                                      RowBounds rowBounds, ResultHandler resultHandler, CacheKey key, BoundSql boundSql){
+      RowBounds rowBounds, ResultHandler resultHandler, CacheKey key, BoundSql boundSql){
   List<E> list;
   // 先在缓存中添加此缓存键CacheKey, 这一步是与延迟加载有关的
   localCache.putObject(key, EXECUTION_PLACEHOLDER);
@@ -525,14 +540,17 @@ public <E> List<E> doQuery(MappedStatement ms, Object parameter, RowBounds rowBo
   try {
     Configuration configuration = ms.getConfiguration();
     // 通过mybatis全局配置对象Configuration, 创建StatementHandler.实际上由它来执行SQL
-    // 每次查询都会new一个StatementHandler, 创建流程看这里
+    // 每次查询都会new一个StatementHandler
     StatementHandler handler = configuration.newStatementHandler(wrapper, ms, 
-                                                                 parameter,rowBounds, resultHandler, boundSql);
-    // 真正创建java.sql.Statement实例, 并为其赋值参数, 具体构造流程看这里.
+                     parameter,rowBounds, resultHandler, boundSql);
+    
+    // 真正创建java.sql.Statement实例, 并为其赋值参数,
     stmt = prepareStatement(handler, ms.getStatementLog());
+    
     // 到此一个完整的java.sql.Statement就已经创建好了, 可以调用StatementHandler.query()
     // 方法查询数据库了, 转到StatementHandler.query().
     return handler.query(stmt, resultHandler);
+    
   } finally {
     // 查询完会关闭数据资源java.sql.Statement, 即执行：statement.close();
     // 通过JDBC知识, 关闭一个资源, 只会关掉以它做底层的上级资源. 所以statement关掉
@@ -552,7 +570,8 @@ public StatementHandler newStatementHandler(Executor executor, MappedStatement
   // 调用RoutingStatementHandler的构造方法, 它会按照MappedStatement类型, 创建不同的
   // StatementHandler实例, 然后将其包裹起来.源码在下方..
   StatementHandler statementHandler = new RoutingStatementHandler(executor, 
-                                                                  mappedStatement, parameterObject, rowBounds, resultHandler, boundSql);
+      mappedStatement, parameterObject, rowBounds, resultHandler, boundSql);
+  
   // 用配置的插件修改这个StatementHandler
   statementHandler = (StatementHandler) interceptorChain.pluginAll(statementHandler);
   return statementHandler;
@@ -564,7 +583,7 @@ RoutingStatementHandler用到的也是装饰者模式，它内部定义了一个
 ```java
 //源码：RoutingStatementHandler -- 39行
 public RoutingStatementHandler(Executor executor, MappedStatement ms, Object parameter,
-                               RowBounds rowBounds, ResultHandler resultHandler, BoundSql boundSql) {
+      RowBounds rowBounds, ResultHandler resultHandler, BoundSql boundSql) {
   // 根据StatementType, 创建不同的StatementHandler. StatementType总共有3种：
   // STATEMENT, PREPARED, CALLABLE, 对应JDBC的Statement的不同操作；mybatis提供
   // 的这些StatementHandler实现都继承自BaseStatementHandler(源码在下面)
@@ -629,11 +648,13 @@ private Statement prepareStatement(StatementHandler handler, Log statementLog){
   Statement stmt;
   // 调用抽象父类BaseExecutor的Transaction对象的getConnection()获取数据库链接
   Connection connection = getConnection(statementLog);
+  
   // 通过StatementHandler.prepare()方法创建Statement实例, 并为它设置查询超时时间。
   // 前面分析知道, 此时的StatementHandler为PreparedStatementHandler实现类, 它就会通过
   // 数据库链接connection的prepareStatement()方法创建出PreparedStatement实例, 这个就是
   // 原生jdbc的代码。而PreparedStatement实例由数据库驱动(如mysql-driver)提供..
   stmt = handler.prepare(connection, transaction.getTimeout());
+  
   // 为创建好的Statement设置参数值, 例如 PrepareStatement 对象上的占位符.这里面会依次
   // 遍历BoundSql的ParameterMapping集合, 取到它们对应的参数值, 通过jdbc的
   // PreparedStatement的各种setxx()方法赋值, 注意下标从1开始...其中赋值操作有交由
@@ -641,6 +662,7 @@ private Statement prepareStatement(StatementHandler handler, Log statementLog){
   // (这是因为jdbc的PreparedStatement太坑爹, 它的setxxx()方法需要区分不同类型的参数)
   // 所以mybatis才会对每一种参数创建一个TypeHandler..我猜是这样子
   handler.parameterize(stmt);
+  
   return stmt;
 }
 ```
@@ -711,9 +733,9 @@ Configuration底层又是交给MapperRegistry去创建Mapper代理，先看Mappe
 
 ```java
 public class MapperRegistry {
-  private final Configuration config;
-  // 这部分会在解析xml中就已知晓, 所以mybatis这里用的是hashMap而不是concurrentHashMap
-  private final Map<Class<?>, MapperProxyFactory<?>> knownMappers = new HashMap<>();
+    private final Configuration config;
+    // 这部分会在解析xml中就已知晓, 所以mybatis这里用的是hashMap而不是concurrentHashMap
+    private final Map<Class<?>, MapperProxyFactory<?>> knownMappers = new HashMap<>();
 }
 ```
 
@@ -725,11 +747,13 @@ public <T> T getMapper(Class<T> type, SqlSession sqlSession) {
   // 先从缓存中knownMappers获取是否有这个Class类型的Mapper代理工厂
   final MapperProxyFactory<T> mapperProxyFactory = 
     (MapperProxyFactory<T>) knownMappers.get(type);
+  
   // 如果格式定义正确, 在xml解析中就可以知道MapperProxyFactory; 如果配置失败或者压根就
   // 没有这个Mapper接口, 则抛出异常BindingException
   if (mapperProxyFactory == null) {
     throw new BindingException("Type " + type + " is not known to the MapperRegistry.");
   }
+  
   try {
     // 调用mapperProxyFactory的newInstance()方法, 传入SqlSession对象
     return mapperProxyFactory.newInstance(sqlSession);
@@ -745,10 +769,10 @@ MapperRegistry会为每个Mapper接口注册着相应的MapperProxyFactory(在�
 
 ```java
 public class MapperProxyFactory<T> {
-  // 相对应的Mapper接口的Class类型
-  private final Class<T> mapperInterface;
-  // Mapper接口内部的方法缓存, 提高反射效率吧. 它和后面的MapperProxy的方法缓存是同一对象
-  private final Map<Method, MapperMethod> methodCache = new ConcurrentHashMap<>();
+    // 相对应的Mapper接口的Class类型
+    private final Class<T> mapperInterface;
+    // Mapper接口内部的方法缓存, 提高反射效率吧. 它和后面的MapperProxy的方法缓存是同一对象
+    private final Map<Method, MapperMethod> methodCache = new ConcurrentHashMap<>();
 }
 ```
 
@@ -762,6 +786,7 @@ public T newInstance(SqlSession sqlSession) {
   // 所以也可以猜到对Mapper接口方法的调用, 最后会转到MapperProxy的invoke()方法上.
   final MapperProxy<T> mapperProxy = new MapperProxy<>(sqlSession, mapperInterface, 
                                                        methodCache);
+  
   // 调用重载的newInstance(MapperProxy)方法
   return newInstance(mapperProxy);
 }
@@ -793,20 +818,20 @@ public Object invoke(Object proxy, Method method, Object[] args) throws Throwabl
   try {
     // 因为JDK动态代理还会处理Object类的方法, 所以这边遇到这种情况, 直接回调原方法
     if (Object.class.equals(method.getDeclaringClass())) {
-      return method.invoke(this, args);
-      // JDK8的接口可以携带default关键字, 然后给出默认实现, 这边就是作出这样的判断. 一般
-      // Mapper接口是不会有默认实现的..
+      	return method.invoke(this, args);
     } else if (method.isDefault()) {
-      if (privateLookupInMethod == null) {
-        // 对JDK8的适配
-        return invokeDefaultMethodJava8(proxy, method, args);
-      } else {
-        // 对JDK9的适配
-        return invokeDefaultMethodJava9(proxy, method, args);
-      }
+        // JDK8的接口可以携带default关键字, 然后给出默认实现, 这边就是作出这样的判断. 一般
+        // Mapper接口是不会有默认实现的..
+        if (privateLookupInMethod == null) {
+          // 对JDK8的适配
+          return invokeDefaultMethodJava8(proxy, method, args);
+        } else {
+          // 对JDK9的适配
+          return invokeDefaultMethodJava9(proxy, method, args);
+        }
     }
   } catch (Throwable t) {
-    throw ExceptionUtil.unwrapThrowable(t);
+    	throw ExceptionUtil.unwrapThrowable(t);
   }
   // 如果是Mapper接口的普通方法调用, 代码就会执行到这里. 先获取MapperMethod, 源码在下面
   final MapperMethod mapperMethod = cachedMapperMethod(method);
@@ -825,7 +850,7 @@ private MapperMethod cachedMapperMethod(Method method) {
   // 传入的, 用的就是它自身的成员变量, 类型为：ConcurrentHashMap. 这里就是对并发做控制了
   // 缓存没有就创建一个新的MapperMethod, 有就直接返回.
   return methodCache.computeIfAbsent(method,
-                                     k -> new MapperMethod(mapperInterface, method, sqlSession.getConfiguration()));
+         k -> new MapperMethod(mapperInterface, method, sqlSession.getConfiguration()));
 }
 ```
 

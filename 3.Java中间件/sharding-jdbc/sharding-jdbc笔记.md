@@ -116,19 +116,19 @@ sharding-jdbc是Sharding-Sphere的模块之一，定位为轻量级Java框架，
 
 包含[分片键](#2.2.1.分片键)和[分片算法](#2.2.2.分片算法)，由于分片算法的独立性，将其独立抽离，真正可用于分片操作的是分片键 + 分片算法，即分片策略 = 分片算法 + 分片键，它才是真正用于分片的实现。目前提供5种分片策略
 
-- **标准分片策略**
+- **标准分片策略(standard)**
 
 对应**StandardShardingStrategy**，提供对SQL语句中的=, >, <, >=, <=, IN和BETWEEN AND的分片操作支持。StandardShardingStrategy只支持单分片键，提供**PreciseShardingAlgorithm（精确分片算法）**和**RangeShardingAlgorithm（范围分片算法）**两个分片算法，其中PreciseShardingAlgorithm是必选的，用于处理=和IN的分片。RangeShardingAlgorithm是可选的，用于处理BETWEEN AND, >, <, >=, <=分片。如果不配置RangeShardingAlgorithm，SQL中的BETWEEN AND将按照全库路由处理
 
-- **复合分片策略**
+- **复合分片策略(complex)**
 
 对应**ComplexShardingStrategy**。提供对SQL语句中的=, >, <, >=, <=, IN和BETWEEN AND的分片操作支持。ComplexShardingStrategy支持多分片键，由于多分片键之间的关系复杂，因此并未进行过多的封装，而是直接将分片键值组合以及分片操作符透传至分片算法，完全由应用开发者实现，提供最大的灵活度
 
-- **行表达式分片策略**
+- **行表达式分片策略(inline)**
 
 对应**InlineShardingStrategy**。使用Groovy的表达式，提供对SQL语句中的=和IN的分片操作支持，只支持**单分片键**。对于简单的分片算法，可以通过简单的配置使用，从而避免繁琐的Java代码开发，如: `t_user_$->{u_id % 8}` 表示t_user表根据u_id模8，而分成8张表，表名称为`t_user_0`到`t_user_7`。
 
-- **Hint分片策略**
+- **Hint分片策略(hint)**
 
 对应**HintShardingStrategy**。通过Hint指定分片值而非从SQL中提取分片值的方式进行分片的策略。
 
@@ -201,7 +201,7 @@ db0.t_order0, db0.t_order1, db1.t_order2, db1.t_order3, db1.t_order4
 
 对于分片策略存有数据源分片策略和表分片策略两种维度。
 
-- **数据源分片策略**
+- **数据源分片策略(即库分片)**
 
 对应于**DatabaseShardingStrategy**。用于配置数据被分配的目标数据源。
 
@@ -436,7 +436,192 @@ SELECT name, SUM(score) FROM t_score GROUP BY name ORDER BY score DESC;
 
 # 4.sharding-jdbc运用配置
 
+sharding-jdbc的配置核心就是数据源javax.sql.DataSource的代理，所以不管使用哪种功能，都是在构造它提供的数据源实现类
 
+## 4.1.数据分片
+
+数据分片的数据源创建工厂：ShardingDataSourceFactory，通过它的createDataSource()就可以创建出一个具有数据分片功能的数据源代理类，该方法需要三个参数依次为：
+
+| 名称               | 数据类型                  | 说明             |
+| :----------------- | :------------------------ | :--------------- |
+| dataSourceMap      | Map<String, DataSource>   | 实际数据源配置   |
+| shardingRuleConfig | ShardingRuleConfiguration | 数据分片配置规则 |
+| props (?)          | Properties                | 属性配置         |
+
+### 4.1.1.dataSourceMap
+
+实际数据源配置，需要指定数据源名称和数据源的实例，例如：
+
+```java
+Map<String, DataSource> retMap = new HashMap<>();
+retMap.put("db1", new HikariDataSource());
+retMap.put("db2", new HikariDataSource());
+```
+
+### 4.1.2.ShardingRuleConfiguration
+
+ShardingRuleConfiguration 是分片规则配置对象，它是主要配置类。其中，TableRuleConfiguration是具体的分片规则配置对象。ShardingRuleConfiguration 还可以指定默认配置，当TableRuleConfiguration未配置的项就会用这个默认配置。
+
+| 名称                                  | 数据类型                                  | 说明                                                         |
+| :------------------------------------ | :---------------------------------------- | :----------------------------------------------------------- |
+| tableRuleConfigs                      | Collection\<TableRuleConfiguration>       | 分片规则列表                                                 |
+| bindingTableGroups                    | Collection\<String>                       | 绑定表规则列表                                               |
+| broadcastTables                       | Collection\<String>                       | 广播表规则列表                                               |
+| defaultDataSourceName                 | String                                    | 未配置分片规则的表将通过默认数据源定位                       |
+| defaultDatabaseShardingStrategyConfig | ShardingStrategyConfiguration             | 默认分库策略                                                 |
+| defaultTableShardingStrategyConfig    | ShardingStrategyConfiguration             | 默认分表策略                                                 |
+| defaultKeyGeneratorConfig             | KeyGeneratorConfiguration                 | 默认自增列值生成器配置，缺省将使用org.apache.shardingsphere.core.keygen.generator.impl.SnowflakeKeyGenerator |
+| masterSlaveRuleConfigs                | Collection\<MasterSlaveRuleConfiguration> | 读写分离规则，缺省表示不使用读写分离                         |
+
+#### 4.1.2.1.TableRuleConfiguration
+
+TableRuleConfiguration，表分片规则配置对象：
+
+| 名称                           | 数据类型                      | 说明                                                         |
+| :----------------------------- | :---------------------------- | :----------------------------------------------------------- |
+| logicTable                     | String                        | 逻辑表名称                                                   |
+| actualDataNodes                | String                        | 由数据源名 + 表名组成，以小数点分隔。多个表以逗号分隔，支持inline表达式。缺省表示使用已知数据源与逻辑表名称生成数据节点，用于广播表（即每个库中都需要一个同样的表用于关联查询，多为字典表）或只分库不分表且所有库的表结构完全一致的情况 |
+| databaseShardingStrategyConfig | ShardingStrategyConfiguration | **分库策略**，缺省表示使用默认分库策略                       |
+| tableShardingStrategyConfig    | ShardingStrategyConfiguration | **分表策略**，缺省表示使用默认分表策略                       |
+| keyGeneratorConfig (?)         | KeyGeneratorConfiguration     | 自增列值生成器配置，缺省表示使用默认自增主键生成器           |
+| encryptorConfiguration (?)     | EncryptorConfiguration        | 加解密生成器配置                                             |
+
+##### 4.1.2.1.1.ShardingStrategyConfiguration
+
+ShardingStrategyConfiguration是指定分片策略（分库和分表）的配置对象，默认有5个分片策略配置实现：
+
+- **ShardingStrategyConfiguration**，用于**单分片键**的标准分片场景。
+
+| 名称                       | 数据类型                 | 说明                      |
+| :------------------------- | :----------------------- | :------------------------ |
+| shardingColumn             | String                   | 分片列名称                |
+| preciseShardingAlgorithm   | PreciseShardingAlgorithm | 精确分片算法，用于=和IN   |
+| rangeShardingAlgorithm (?) | RangeShardingAlgorithm   | 范围分片算法，用于BETWEEN |
+
+- **ComplexShardingStrategyConfiguration**，用于**多分片键**的复合分片场景。
+
+| 名称              | 数据类型                     | 说明*                        |
+| :---------------- | :--------------------------- | :--------------------------- |
+| shardingColumns   | String                       | 分片列名称，多个列以逗号分隔 |
+| shardingAlgorithm | ComplexKeysShardingAlgorithm | 复合分片算法                 |
+
+- **InlineShardingStrategyConfiguration**，用于配置**行表达式**分片策略。
+
+| 名称                | 数据类型 | 说明                               |
+| :------------------ | :------- | :--------------------------------- |
+| shardingColumn      | String   | 分片列名称                         |
+| algorithmExpression | String   | 分片算法行表达式，需符合groovy语法 |
+
+- **HintShardingStrategyConfiguration**，用于配置**Hint方式**分片策略。
+
+| 名称              | 数据类型              | 说明         |
+| :---------------- | :-------------------- | :----------- |
+| shardingAlgorithm | HintShardingAlgorithm | Hint分片算法 |
+
+- **NoneShardingStrategyConfiguration**，用于配置不分片的策略。
+
+##### 4.1.2.1.2.KeyGeneratorConfiguration
+
+KeyGeneratorConfiguration，自增列值生成器配置类
+
+| 名称   | 数据类型   | 说明                                                       |
+| :----- | :--------- | :--------------------------------------------------------- |
+| column | String     | 自增列名称                                                 |
+| type   | String     | 自增列值生成器类型，可自定义或选择内置类型：SNOWFLAKE/UUID |
+| props  | Properties | 自增列值生成器的相关属性配置                               |
+
+它的Properties属性配置项，可以为以下自增列值生成器的属性。
+
+| 名称                                      | 数据类型 | 说明                                                         |
+| :---------------------------------------- | :------- | :----------------------------------------------------------- |
+| worker.id                                 | long     | 工作机器唯一id，默认为0                                      |
+| max.tolerate.time.difference.milliseconds | long     | 最大容忍时钟回退时间，单位：毫秒。默认为10毫秒               |
+| max.vibration.offset                      | int      | 最大抖动上限值，范围[0, 4096)，默认为1。注：若使用此算法生成值作分片值，建议配置此属性。此算法在不同毫秒内所生成的key取模2^n (2^n一般为分库或分表数) 之后结果总为0或1。为防止上述分片问题，建议将此属性值配置为(2^n)-1 |
+
+##### 4.1.2.1.3.EncryptorConfiguration
+
+加解密配置
+
+| 名称       | 数据类型                                   | 说明                                              |
+| :--------- | :----------------------------------------- | :------------------------------------------------ |
+| encryptors | Map<String, EncryptorRuleConfiguration>    | 加解密器配置列表，可自定义或选择内置类型：MD5/AES |
+| tables     | Map<String, EncryptTableRuleConfiguration> | 加密表配置列表                                    |
+
+- #### EncryptorRuleConfiguration
+
+| 名称       | 数据类型   | 说明                                                         |
+| :--------- | :--------- | :----------------------------------------------------------- |
+| type       | String     | 加解密器类型，可自定义或选择内置类型：MD5/AES                |
+| properties | Properties | 属性配置, 注意：使用AES加密器，需要配置AES加密器的KEY属性：aes.key.value |
+
+- #### EncryptTableRuleConfiguration
+
+| *名称* | *数据类型*                                  | *说明*         |
+| :----- | :------------------------------------------ | :------------- |
+| tables | Map<String, EncryptColumnRuleConfiguration> | 加密列配置列表 |
+
+其中的EncryptColumnRuleConfiguration：
+
+| 名称                | 数据类型 | 说明                                                         |
+| :------------------ | :------- | :----------------------------------------------------------- |
+| plainColumn         | String   | 存储明文的字段                                               |
+| cipherColumn        | String   | 存储密文的字段                                               |
+| assistedQueryColumn | String   | 辅助查询字段，针对ShardingQueryAssistedEncryptor类型的加解密器进行辅助查询 |
+| encryptor           | String   | 加解密器名字                                                 |
+
+#### 4.1.2.2.MasterSlaveRuleConfiguration
+
+在数据分片的基础上，增加读写分离的功能，就可以使用 MasterSlaveRuleConfiguration 配置类，它其实就是单独使用[读写分离](#4.2.2.MasterSlaveRuleConfiguration)时的配置。
+
+### 4.1.3.Properties
+
+数据源相关属性的配置项，可以为以下属性。
+
+| 名称                                   | 数据类型 | 说明                                                    |
+| :------------------------------------- | :------- | :------------------------------------------------------ |
+| sql.show                               | boolean  | 是否开启SQL显示，默认值: false                          |
+| executor.size                          | int      | 工作线程数量，默认值: CPU核数                           |
+| max.connections.size.per.query         | int      | 每个物理数据库为每次查询分配的最大连接数量。默认值: 1   |
+| check.table.metadata.enabled           | boolean  | 是否在启动时检查分表元数据一致性，默认值: false         |
+| query.with.cipher.column               | boolean  | 当存在明文列时，是否使用密文列查询，默认值: true        |
+| allow.range.query.with.inline.sharding | boolean  | 当使用inline分表策略时，是否允许范围查询，默认值: false |
+
+## 4.2.读写分离
+
+读写分离的数据源创建工厂类：MasterSlaveDataSourceFactory，通过它的createDataSource()就可以创建出一个具有读写分离功能的数据源代理类，该方法需要三个参数依次为：
+
+| 名称                  | 数据类型                     | 说明                 |
+| :-------------------- | :--------------------------- | :------------------- |
+| dataSourceMap         | Map<String, DataSource>      | 数据源与其名称的映射 |
+| masterSlaveRuleConfig | MasterSlaveRuleConfiguration | 读写分离规则         |
+| props                 | Properties                   | 属性配置             |
+
+### 4.2.1.dataSourceMap
+
+同数据分片一样，配置实际的数据源
+
+### 4.2.2.MasterSlaveRuleConfiguration
+
+读写分离规则配置对象。
+
+| 名称                     | 数据类型                        | 说明               |
+| :----------------------- | :------------------------------ | :----------------- |
+| name                     | String                          | 读写分离数据源名称 |
+| masterDataSourceName     | String                          | 主库数据源名称     |
+| slaveDataSourceNames     | Collection\<String>             | 从库数据源名称列表 |
+| loadBalanceAlgorithm (?) | MasterSlaveLoadBalanceAlgorithm | 从库负载均衡算法   |
+
+### 4.2.2.Properties
+
+属性配置项，可以为以下属性。
+
+| 名称                           | 数据类型 | 说明                                                   |
+| :----------------------------- | :------- | :----------------------------------------------------- |
+| sql.show (?)                   | boolean  | 是否打印SQL解析和改写日志，默认值: false               |
+| executor.size (?)              | int      | 用于SQL执行的工作线程数量，为零则表示无限制。默认值: 0 |
+| max.connections.size.per.query | int      | 每个物理数据库为每次查询分配的最大连接数量。默认值: 1  |
+| check.table.metadata.enabled   | boolean  | 是否在启动时检查分表元数据一致性，默认值: false        |
 
 # 5.sharding-jdbc源码分析
 
+....待定

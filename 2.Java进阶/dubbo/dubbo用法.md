@@ -12,11 +12,11 @@ dubbo就是实现RPC思想的分布式服务框架。这是官网给出的dubbo�
 
 ## 2.1.搭建zookeeper
 
-Dubbo推荐使用zookeeper作为注册中心，zookeeper官方下载地址：https://archive.apache.org/dist/zookeeper。在window安装，只要把下载的.tar.gz压缩包解压后，到/conf目录中拷贝zoo_sample.cfg文件的副本，并取名为zoo.cfg；在解压目录中创建data文件夹和logs文件夹（这两个文件夹名字自取），并在刚才拷贝的zoo.cfg中加入两行配置：dataDir=../data，dataLogDir=../logs即可。再到/bin目录中，使用cmd窗口执行zkServer.cmd就能启动zookeeper。
+Dubbo推荐使用zookeeper作为注册中心，zookeeper官方下载地址：[https://archive.apache.org/dist/zookeeper](https://archive.apache.org/dist/zookeeper)。在window安装，只要把下载的.tar.gz压缩包解压后，到/conf目录中拷贝zoo_sample.cfg文件的副本，并取名为zoo.cfg；在解压目录中创建data文件夹和logs文件夹（这两个文件夹名字自取），并在刚才拷贝的zoo.cfg中加入两行配置：dataDir=../data，dataLogDir=../logs即可。再到/bin目录中，使用cmd窗口执行zkServer.cmd就能启动zookeeper。
 
 ## 2.2.搭建控制台
 
-dubbo在github托管源码，https://github.com/apache/incubator-dubbo。打开它的首页，接近底部有个Dubbo OPS，这个就是dubbo的管理控制台，相对于注册中心zookeeper，控制台可搭建可不搭建，它不影响dubbo的使用。点击[Dubbo OPS链接](https://github.com/apache/incubator-dubbo-ops)，下载它的压缩包，解压后可得：
+dubbo在github托管源码，[https://github.com/apache/incubator-dubbo](https://github.com/apache/incubator-dubbo)。打开它的首页，接近底部有个Dubbo OPS，这个就是dubbo的管理控制台，相对于注册中心zookeeper，控制台可搭建可不搭建，它不影响dubbo的使用。点击[Dubbo OPS链接](https://github.com/apache/incubator-dubbo-ops)，下载它的压缩包，解压后可得：
 
 ![](./images/dubbo-admin包目录.png)
 

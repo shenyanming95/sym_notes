@@ -382,17 +382,17 @@ Mysql官方对索引的定义：索引（Index）是帮助Mysql高效获取数�
 
 尽量使用覆盖索引（查询列和索引列一样），减少select * 操作。我们把select *改成select name age后，对比一下，发现Extra列多了一个Using index，当出现using index表示系统性能更好，所以，当我们在查询的时候尽可能地保证查询的列能和索引列一样，这样Mysql直接从索引上取值，极大地加大性能：
 
-![](./images/索引优化-避免select *查询.png)
+![](./images/索引优化-避免select全查询.png)
 
 ### 3.4.5.!=，<>会使索引失效
 
 mysql在使用不等于（!=或者<>）的时候，无法使用索引导致全表扫描。备注：在mysql中，<>相当于!=，即不等于的意思；<=>相当于=，即等于的意思
 
-![](./images/索引优化-!=、<>使索引失效_1.png)
+![](./images/索引优化-不等符号使索引失效_1.png)
 
 由上图知道，使用了!=时，性能直接由ref级别下降到all级别。但是如果是唯一性索引，例如主键，就算用了!=，索引也可以使用，变为range类型：
 
-![](./images/索引优化-!=、<>使索引失效_2.png)
+![](./images/索引优化-不等符号使索引失效_2.png)
 
 ### 3.4.6.is null或is not null索引失效
 
@@ -824,7 +824,7 @@ show master status;
 
     ```sql
    show master status;
-    ```
+   ```
 
 ![](./images/主从复制master status.png)
 

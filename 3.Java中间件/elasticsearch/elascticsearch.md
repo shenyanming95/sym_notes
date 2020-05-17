@@ -128,7 +128,21 @@ ES的选举是ZenDiscovery模块负责，核心入口为findMaster。主要包�
 
 3. 某个节点的投票数达到一定的值（可以成为master节点数n/2+1）并且该节点自己也选举自己，那这个节点就是master，否则重新选举一直到满足上述条件。
 
-当候选数量为两个时，只能手动修改为唯一的一个master候选，其他作为data节点，这就是选举过程中的脑裂问题；因此集群的节点数量最好是奇数个，即最少3个节点，这样通过配置discovery.zen.minimum_master_nodes最少投票通过数量，超过所有候选节点一半以上来解决脑裂问题。
+当候选数量为两个时，只能手动修改为唯一的一个master候选，其他作为data节点，因此集群的节点数量最好是奇数个，即最少3个节点。脑裂问题是采用master-slave模式的分布式集群普遍需要关注的问题，ES避免脑裂的策略：过半原则，可以在ES的集群配置中添加一下配置，避免脑裂的发生
+
+```text
+#一个节点多久ping一次，默认1s
+discovery.zen.fd.ping_interval: 1s
+
+##等待ping返回时间，默认30s
+discovery.zen.fd.ping_timeout: 10s
+
+##ping超时重试次数，默认3次
+discovery.zen.fd.ping_retries: 3
+
+##选举时需要的节点连接数，N为具有master资格的节点数量
+discovery.zen.minimum_master_nodes=N/2+1
+```
 
 ### 2.2.2.索引过程(写入过程)
 

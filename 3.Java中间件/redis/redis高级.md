@@ -848,3 +848,293 @@ loglevel表示redis日志等级，有4个取值：
   redis.LOG_WARNING
 
 # 8.主从复制
+
+一个Redis服务可以有多个复制品，这个Redis服务称为Master，其它复制品称为Slaves；Master会一直将自己的数据更新同步到Slaves，保持主从一致。 
+
+## 8.1.主从配置
+
+有两种方式可以配置redis的主从复制，一是在启动时，二是在启动后：
+
+1. 在服务启动时，就指定它为一个从服务器（这种配置方式是临时的）命令：
+
+   ```bash
+   redis-server --slaveof <master-ip> <master-port>
+   ```
+
+   或者，配置redis.conf文件，开启slaveof配置（这种配置方式是永久的）
+
+2. 在服务启动后，将它的状态由master改为slave，命令：
+
+   ```bas
+   slaveof 127.0.0.1 6379  -- 将服务器状态转换成slave
+   slaveof no one          -- 将服务器状态重新转换成master
+   ```
+
+（这种方式也是临时的，在服务器关闭以后，就不在生效）
+
+**其它配置：**
+
+1. 如果master服务器开启了身份认证，即配置了**requirepass**属性（比如requirepass root）表示连接到master服务器需要密码root；则slave服务器需要配置**masterauth**属性（即：masterauth root）否则master会拒绝slave的连接。
+
+2. slave服务器在一般情况下，都要配置成只读模式，即配置**slave-read-only**属性（即：slave-read-only no，从redis2.6开始此项就默认为no）。这样master就负责写，其它从服务器slave就负责读。如果slave也可以写，它并不会把自己的数据同步到master上，导致主从数据不一致。
+
+## 8.2.主从拓扑
+
+redis有3种主从服务器的搭建拓扑：
+
+1. 一主一从，用于master故障转移slave。使用场景：master的“写”命令频繁并且需要持久化，可以只在slave开启AOF（master就不需要开启），既可以保证数据安全性，也避免持久化对master的影响。
+
+<img src="./images/一主一从.png" style="zoom:67%;" />
+
+2. 一主多从，适用于“读”命令较多的场景，配置多个slave来分担master的读压力，但是，slave越多，master同步数据到slave的次数也会增多，可能会影响带宽
+
+<img src="./images/一主多从.png" style="zoom:67%;" />
+
+3. 树状主从，用来解决第②种一主多从的问题（master同步数据到slave的压力过大），master同步修改的命令给从节点B，再由从节点B把修改命令同步给C和E。这种拓扑的配置步骤：
+
+   - 配置主服务器master-A；
+
+   - 配置从服务器slave-B，它的主服务器是master-A；
+
+   - 配置从服务器slave-C，它的主服务器是slave-B（说白了，就是从服务器是另一个从服务器的“主服务器”）这样master-A就不用直接把数据同步给slave-C，A只需要把数据同步给B，再由B同步给C，减轻主服务器master-A的数据同步压力！
+
+<img src="./images/树状主从.png" style="zoom:67%;" />
+
+## 8.3.主从同步策略
+
+当将一个redis服务配置为另一个redis服务的从服务器时，为了保证主从数据同步，从服务器需要复制主服务器的数据。这个过程有两种情况：一种是刚刚配置主从关系时，此时的复制操作称为“**全量同步**”；另一种是主从配置以后，主服务器的修改都会同步到从服务器上，此时的复制操作称为“**增量同步**”
+
+### 8.3.1.全量同步
+
+全量同步发生在主从复制刚配置好的阶段，此时主服务器上的数据需要全部同步到从服务器上，会发生以下步骤：
+
+![](./images/全量同步.png)
+
+1. slave连接到master上，并发送SYNC命令；
+
+2. master收到SYNC命令后，执行BGSAVE生成RDB快照，在快照生成后，master向所有slave发送RDB快照，并且master还会缓冲区记录期间的写命令；
+
+3. slave收到RDB快照，清空自己的数据库，载入RDB快照；
+
+4. master发送完快照后，开始发送②步记录在缓冲区的写命令；
+
+5. slave接收并执行master的写命令。至此，主从数据基本同步；
+
+### 8.3.2.增量同步
+
+master 每次接收到写命令之后，先在内部写入数据，然后异步发送给 slave node；但如果slave是断线后重连，master会根据psync命令带过来的slave的[复制偏移量](#8.4.2.1复制偏移量)，从自己的 backlog 中获取部分丢失的数据，发送给 slave，默认 backlog 就是 1MB。这个过程就是增量同步。
+
+## 8.4.主从同步原理
+
+当主从服务器在执行数据同步时，redis2.8版本之前，从服务器是发送SYNC命令给主服务器；而当redis2.8起，从服务器是发送PSYNC命令给主服务器。以下内容参考自：[https://www.cnblogs.com/lukexwang/p/4711977.html](https://www.cnblogs.com/lukexwang/p/4711977.html)
+
+### 8.4.1.SYNC
+
+SYNC命令是非常消耗性能的，redis服务器每次执行SYNC命令，都要先生成RDB文件，再发送给从服务器，然后从服务器再来执行这个RDB文件，整个过程不仅消耗主服务器的CPU和网络资源，且从服务器在载入RDB文件时，也会因为阻塞而不能处理请求。但问题远没有那么简单，SYNC命令被抛弃的原因是：当master和slave在[增量同步](#9.3.2.增量同步)时，由于各种原因slave断开连接，然后slave会一直自动重连master，一段时间后，主从服务器恢复连接，但是此时的主从数据已经不同步了，slave会发送SYNC命令重新请求同步数据。但其实slave缺失的仅仅是master掉线期间更新的数据，但是却要同步master所有的数据，相当于重新执行一遍SYNC，这是十分低效且浪费资源的
+
+## 8.4.2.PSYNC
+
+redis为了解决SYNC效率低的问题，开始在2.8版本以后，使用PSYNC代替SYNC命令。PSNYC命令具有“**完整重同步**”和“**部分重同步**”两种模式，“完整重同步”适用于[全量同步](#8.3.1.全量同步)，这一点与SYNC命令一样；“部分重同步”则专门用于处理主从服务器断开连接后重同步的情况，把断线期间，master执行的命令同步到slave上。那么master在收到PSYNC命令后是怎么判断要对slave使用“完整重同步”还是“部分重同步”？这就涉及到PSYNC命令的原理，PSYNC的部分重同步模式由以下3个部分组成：
+
+  ①主、从服务器各自的**复制偏移量**
+
+  ②主服务器的**复制积压缓冲区**
+
+  ③服务器的**运行ID**
+
+#### 8.4.2.1.复制偏移量
+
+master和slave都各自维护一个复制偏移量，master每次同步给slave服务器N个字节的数据时，就把自己的复制偏移量+N；同理，slave接收到master服务器的N个字节的数据，就把自己的复制偏移量+N；通过这个复制偏移量，就可以知道主从服务器之间是否处于数据一致状态。
+
+![](./images/复制偏移量.png)
+
+#### 8.4.2.2.复制积压缓冲区
+
+复制积压缓冲区是由master维护的一个固定长度的先进先出队列，默认为1MB。当复制积压缓冲区满的时候，仍有新元素进来，则最先入队的元素会被弹出，而新元素被放到队尾。master在进行数据同步时，不仅会把命令发送给从服务器，还会把命令保存到复制积压缓冲区里，且复制积压缓冲区会把命令的每个字节记录相应的复制偏移量：
+
+![](./images/复制积压缓冲区.png)
+
+所以当slave重新连接上master时，会将自己的复制偏移量通过PSYNC发送给master。master判断：若slave发过来的复制偏移量+1后的数据仍在复制积压缓冲区内，就执行“部分重同步”操作，反之执行“完整重同步”。由此可见，复制积压缓冲区是非常重要的，设置太大和太小都不能发挥PSYNC的正常功能。一般是根据公式：
+
+**缓冲区大小 = second \* write_size_per_second**
+
+- second：从服务器断线后重新连接上主服务器所需的平均时间（以秒计算）
+
+- write_size_per_second：是主服务器平均每秒产生的写命令数据量（协议格式的写命令的长度总和）；
+
+**例如：**
+
+如果主服务器平均每秒产生1 MB的写数据，而从服务器断线之后平均要5秒才能重新连接上主服务器，那么复制积压缓冲区的大小就不能低于5MB！
+
+#### 8.4.2.3.服务运行ID
+
+每个redis服务器，不论是master还是slave，都会有自己的运行ID，该ID会在服务启动时自动生成，为40个随机的十六进制字符。除了复制偏移量和复制积压缓冲区，要实现PSYNC命令的“部分重同步”还需要用到这个服务运行ID。
+
+  当主从服务器第一次交互，即[全量同步](#9.3.1.全量同步)时，master会把自己的运行ID发送给slave，slave保存该运行ID；当slave掉线重连，需要重新更新数据，slave会通过PSYNC命令将之前保存的master运行ID一并发送给当前重连的master；若master发现这个运行ID跟自己的运行ID一样，它就会对slave执行“部分重同步”操作（当然还需要判断复制偏移量和复制积压缓冲区的情况）；否则，一旦slave发送的运行ID跟自己的运行ID不一样，说明slave之前连接的主服务器不是自己，那么它就会对slave执行“完整重同步”操作。**个人理解：**服务运行ID的判断优先于复制偏移量和复制积压缓冲区！
+
+# 9.哨兵模式
+
+redis的[主从复制](#8.主从复制)，当主服务器宕机后，群龙无首，需要人为地将从服务器晋升为主服务器。也就是说：单单的主从复制，在发生故障时，没有办法自行故障转移。所以，在实际生产运用中，主从复制往往和哨兵模式结合在一起，使用哨兵模式Sentinel管理多个redis服务实例。Redis Sentinel是一个分布式系统，可以在一个架构中运行多个Sentinel进程，编译后产生redis-sentinel程序文件。
+
+## 9.1.sentinel原理
+
+哨兵Sentinel是分布式架构，是为了防止当单个Sentinel服务器宕机而使整个监控系统崩溃。监控同一个Master的Sentinel会自动连接，组成一个分布式的Sentinel网络，相互通信并且交换彼此对Master的监控信息，如下所示：
+
+<img src="./images/哨兵模式.png" style="zoom:67%;" />
+
+**工作过程：**
+
+Sentinel会不断检查Master和它的slave是否正常，当一个Sentinel监控到有个服务器下线(出故障了)，它会向哨兵网络的其他Sentinel进行确认，判断该服务器是否真的下线(出故障了)；如果下线的服务器是master服务器，Sentinel网络会对下线master服务器进行自动故障转移：将该master服务器旗下的某个slave服务器提升为新的master服务器，并且在其他slave服务器中设置新的master服务器。(若下线的服务器重新上线，它将变为slave服务器，请求复制新选举的master)
+
+**注意：**
+
+Sentinel在选举新的slave节点为master节点时，会修改所有相关节点的配置文件redis.conf，包括哨兵自己的配置文件sentinel.conf
+
+## 9.2.配置sentinel.conf
+
+启动一个哨兵Sentinel需要sentibel.conf，该配置文件可以在redis的源码包找到。当启动了多个哨兵sentinel，监听相同master的sentinel就会自动组成一个哨兵网络。一个哨兵网络内的sentinel，它们的配置文件sentibel.conf，除了端口号不一样外，其它属性基本一致。
+
+**常用属性配置：**
+
+```reStructuredText
+## Sentinel节点启动时占用的端口(默认是26379)
+## dir是sentinel节点的工作目录
+## logfile是sentinel节点的日志记录文件名
+port 26379  
+dir /var/redis/data/
+logfile "26379.log"
+
+## 当前Sentinel节点监控 127.0.0.1:6379 这个主节点(即master)
+## mymaster是主节点的别名，后面的配置就可以使用这个别名
+## 2代表判断主节点故障，至少需要2个Sentinel节点认可
+sentinel monitor mymaster 127.0.0.1 6379 2
+##注：这边为什么只需要配置master服务器即可？因为slave服务器的信息可以从master服务器拿到
+
+## 每个Sentinel节点都要定期PING命令来判断Redis数据节点和其余//Sentinel节点是否可达，
+## 如果超过30000毫秒且没有回复，则判定不可达
+sentinel down-after-milliseconds mymaster 30000
+
+## 当Sentinel节点集合对主节点故障判定达成一致时，Sentinel领导者节点//会做故障转移操作，## 选出新的主节点。原来的从节点会向新的主节点发起复制//操作，限制每次向新的主节点发起复制操## 作的从节点个数为1
+sentinel parallel-syncs mymaster 1
+
+## 故障转移超时时间为180000毫秒
+sentinel failover-timeout mymaster 180000
+
+## 如果redis服务节点配置了认证，则Sentinel需要配置认证密码，不然它//连接不上该服务节点，## 更谈不上监控了。mymaster是配置监控节点时设置的别名，root是redis服务节点的密码
+sentinel auth-pass mymaster root
+```
+
+## 9.3.启动sentinel
+
+配置好sentinel.conf以后，就可以启动一个哨兵实例，有两种方式启动：
+
+**①使用redis-server启动**
+
+```bash
+## 命令
+redis-server <sentinel.conf路径> --sentinel
+
+## 例子
+redis-server /usr/redis/sentinel.conf –-sentinel
+```
+
+**②使用redis-sentinel启动**
+
+ 将redis源码包/src/redis-sentinel程序文件拷贝到redis安装包的bin目录下（如果bin目录已经有redis-sentinel，这一步就可以省略了）。
+
+ ```bash
+## 语法
+redis-sentinel < sentinel.conf路径>
+
+## 例子
+redis-sentinel /usr/redis/sentinel.conf
+ ```
+
+启动并且监听成功的信息：
+
+![](./images/redis哨兵模式启动.png)
+
+# 10.集群模式
+
+为什么使用集群？就算使用“主从复制+哨兵”，redis每个实例也是**全量存储**，每个redis存储的内容都是完整的数据，浪费内存且有木桶效应。为了最大化利用内存，可以采用集群，就是分布式存储。集群内的redis节点**分量存储**，各自承担一部分数据。这是集群与主从+哨兵最显著的区别！部署redis集群可以有两种方式： twemProxy模式和redis-cluster模式
+
+## 10.1.集群部署方式
+
+### 10.1.1.twemProxy
+
+**twemProxy模式**是一种代理分片机制，由Twitter开源。Twemproxy作为代理，可接受来自多个程序的访问，按照路由规则，转发给后台的各个Redis服务器，再原路返回，这种集群方式不推荐，做了解吧！其工作流程如下锁示：
+
+<img src="./images/twemProxy集群模式.png" style="zoom:67%;" />
+
+### 10.1.2.redis-cluster
+
+redis-cluster集群模式需要redis 3.0以上版本支持，由多个Redis服务器组成的分布式网络服务集群。每一个Redis服务器称为节点Node，节点之间会相互通信，两两相连。redis-cluster集群采用无中心结构，无中心节点，每个节点有两种角色可选：主节点master node、从节点slave node，其中主节点用于存储数据，从节点是某个主节点的复制品
+
+当需要处理更多的读请求时，可以添加从节点，例如7000主节点可以添加7006从节点、7007从节点，以扩展系统的读性能。这一点跟[主从复制](#8.主从复制)道理是一样的，从节点会同步主节点的数据
+
+![](./images/redis-cluster集群模式.png)
+
+#### 10.1.2.1.故障转移
+
+redis-cluster集群的主节点内置了类似[redis-sentinel](#9.哨兵模式)的节点故障检测和自动故障转移功能，当集群中的某个主节点下线时，集群中的其它在线主节点会监测到，并对已下线的主节点进行故障转移。集群进行故障转移的方法和Redis-Sentinel进行故障转移的方法基本一样，不同的是，在集群里面，故障转移是由集群中其它在线的主节点负责进行的，因此集群不需要额外使用Sentinel。
+
+#### 10.1.2.2.数据分片
+
+redis-cluster集群将整个数据库分为16384个分片solt，所有Key都可以匹配这些slot中的一个，key的分片计算公式：**slot_num=crc16(key)%16384**，其中crc16为16位的循环冗余校验和函数。集群中的每个主节点都可以处理0~16383个分片，但是集群中一般是所有**主节点**平均分担16384个分片，当16384个分片都有节点在负责处理时，集群就可以工作了！
+
+（所以redis-cluster集群一般会搭建**奇数个**主节点）
+
+#### 10.1.2.3.路由转向
+
+redis-cluster集群无中心节点，每个节点都可以接受请求并且具备一定的路由能力。当客户端访问的key不在对应Redis节点的slot中，Redis返回给Client一个moved命令，告知其正确的路由信息，然后客户端根据路由信息包含的地址和端口重新向真正负责的节点发起请求：
+
+<img src="./images/路由转向.png" style="zoom:80%;" />
+
+#### 10.1.2.4.集群配置参数
+
+在redis.conf中配置集群参数：
+
+1. **cluster-enabled** <yes/no>：取值为yes表示此redis服务启动时支持。 集群模式；若为no，则以单机模式启动redis服务
+
+2. **cluster-config-file** \<filename>：此选项不是用户可编辑的配置文件，而是Redis集群节点每次发生更改时自动保留集群配置（基本上为状态）的文件，以便能够在启动时重新读取它。该文件列出了群集中其它节点，它们的状态，持久变量等等。在节点收到一些消息后此文件就会被重写。
+
+3. **cluster-node-timeout** \<milliseconds>：redis集群的最大超时时间。若集群内某个节点的响应时间超过最大值，则被判定为不可达（已宕机）；若此节点为master节点，则它的slave节点会取代它成为新的master节点。此配置十分重要，集群中的很多配置依赖于超时配置。
+
+4. **cluster-slave-validity-factor **：此参数判断slave节点是否有资格在master宕机后选举新的master节点。主要是为了防止短线后slave节点与master节点太久未通信，导致数据不一致，则该slave节点就不应该取代master成为新的master节点。如果设置为0，则表示不介意这个断线时间的长短，slave节点都会尝试故障转移成为新的master节点；如果设置为一个正数(大于0)，则会和超时时间**cluster-node-timeout**相乘，乘积作为评判标准。例如设置为5，超时时间设置为10s，则与master节点断开连接超过50s的slave节点不会进行故障转移，选举成为新的master节点。注意，此选项有风险：任何非0值的设置，都可能导致master节点出现故障后，它的slave节点又没有资格故障转移选举为新的master节点，整个集群一直处于不可用状态。在这种情况下，只有原始master节点重新加入集群时，集群才可以正常使用。
+
+5. **cluster-migration-barrier** \<count>：配置一个master节点至少要拥有的slave节点数。一个master只有它的slave节点数达到该参数设置的值，在它宕机后，它的slave节点才会进行故障转移选举成为新的master。例如：此参数设为2，那么只有当一个master节点拥有2个可工作的slave节点时，在它宕机后，它的一个slave节点才会尝试故障迁移。
+
+6. **cluster-require-full-coverage** <yes/no>： 当redis集群的16384个分片slot没有被master节点完全分配完，如果此选项设置为yes，则集群不可用，拒绝提供服务；如果此选项设置为no，集群可用，继续提供服务。
+
+## 10.2.集群管理工具
+
+redis-trib.rb是redis官方推出的管理redis集群的工具，集成在redis的源码src目录下，是基于redis提供的集群命令封装成简单、便捷、实用的操作工具。redis-trib.rb是redis作者用ruby完成的，只用了1600行左右的代码，就实现了强大的集群操作。
+
+  参考文章: [http://blog.csdn.net/huwei2003/article/details/50973967](http://blog.csdn.net/huwei2003/article/details/50973967)
+
+在使用redis-trib.rb，使用help命令可以告诉我们使用方式和命令参数，大部分命令的参数都需要用host:port参数，指定集群内的某一节点，redis-trib.rb从该节点来获取集群的信息。使用redis-trib.rb的语法为：redis-trib \<command> \<options> <arguments ...>
+
+![](./images/redis集群管理工具.png)
+
+## 10.3.集群命令
+
+连接上去redis节点，进入命令行窗口
+
+| **命令**                                      | **作用**                                                     |
+| --------------------------------------------- | ------------------------------------------------------------ |
+| cluster info                                  | 打印集群的信息                                               |
+| cluster nodes                                 | 打印集群内的所有节点信息(包括ip、port和主从关系)             |
+| cluster meet \<ip> \<port>                    | 将ip和port指定的节点添加当前集群当中                         |
+| cluster forget <node_id>                      | 从集群中移除node_id指定的节点                                |
+| cluster replicate <master_id>                 | 将当前从节点设置为master_id指定的主节点的从节点。只能针对从节点操作 |
+| cluster saveconfig                            | 将节点的配置文件保存到硬盘里面                               |
+| cluster addslots <slot...>                    | 将一个或多个槽(slot)指派给当前节点                           |
+| cluster delslots <slot...>                    | 移除已指派给当前节点的一个或多个槽(slot)                     |
+| cluster flushslots                            | 移除已指派给当前节点的所有slot，使其成为一个没有指派任何slot的节点 |
+| cluster setslot \<slot> node  <node_id>       | 将solt指派给node_id指定的节点，若槽已经指派给另一个节点，会先让另一个节点删除该槽再进行指派 |
+| cluster setslot \<slot>   migrating <node_id> | 将本节点的槽slot迁移到node_id指定的节点中                    |
+| cluster setslot \<slot>   importing <node_id> | 从node_id指定的节点中导入槽slot到本节点                      |
+| cluster setslot \<slot> stable                | 取消对槽slot的导入(import)或迁移(migrate)                    |
+| cluster keyslot \<key>                        | 计算键key应该被放置在哪个槽上                                |
+| cluster countkeysinslot \<slot>               | 返回槽slot目前包含的键值对数量                               |
+| cluster getkeysinslot \<slot>  \<count>       | 返回count个slot槽中的键                                      |

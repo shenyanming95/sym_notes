@@ -43,7 +43,7 @@ Eureka是Netflix的一个子模块，也是核心模块之一。其本身是一�
 
 ## 2.1.EurekaServer服务端
 
-对应的配置类：org.springframework.cloud.netflix.eureka.server.EurekaServerConfigBean
+对应的配置类：`org.springframework.cloud.netflix.eureka.server.EurekaServerConfigBean`
 
 ### 2.1.1.单机环境
 
@@ -322,27 +322,27 @@ eureka:
 
 springCloud提供了两种**服务发现**注解：
 
-- @EnableEurekaClient
+- `@EnableEurekaClient`
 
-- @EnableDiscoveryClient
+- `@EnableDiscoveryClient`
 
 **两者的区别：**
 
-@EnableDiscoveryClient基于spring-cloud-commons，而@EnableEurekaClient基于spring-cloud-netflix。更简单的来说，如果选用的注册中心是eureka，那么就使用@EnableEurekaClient，如果是其他的注册中心，那么推荐使用@EnableDiscoveryClient！
+`@EnableDiscoveryClient`基于spring-cloud-commons，而`@EnableEurekaClient`基于spring-cloud-netflix。更简单的来说，如果选用的注册中心是eureka，那么就使用`@EnableEurekaClient`，如果是其他的注册中心，那么推荐使用`@EnableDiscoveryClient`！
 
 ## 2.5.Eureka配置
 
-一般Eureka server，即注册中心的配置采用默认即可，如果有需要查找它的配置类：org.springframework.cloud.netflix.eureka.server.EurekaServerConfigBean；更多情况，都是对Eureka client做配置，分为两个部分：服务注册相关的配置和服务实例相关的配置！
+一般Eureka server，即注册中心的配置采用默认即可，如果有需要查找它的配置类：`org.springframework.cloud.netflix.eureka.server.EurekaServerConfigBean`；更多情况，都是对Eureka client做配置，分为两个部分：服务注册相关的配置和服务实例相关的配置！
 
 ### 2.5.1.服务注册相关配置
 
-配置类：org.springframework.cloud.netflix.eureka.EurekaClientConfigBean，以下参数均是以eureka.client作前缀：
+配置类：`org.springframework.cloud.netflix.eureka.EurekaClientConfigBean`，以下参数均是以eureka.client作前缀：
 
 ![](./images/Eureka服务注册相关配置.jpg)
 
 ### 2.5.2.服务实例相关配置
 
-对应配置类：org.springframework.cloud.netflix.eureka.EurekaInstanceConfigBean。springCloud会把上面配置类的信息封装成com.netflix.appinfo.InstanceInfo，然后发给Eureka Server注册服务，其中会携带当前服务的元数据。元数据是指用来描述自身服务信息的对象，其中包含了一些标准化的元数据，比如服务名称、实例名称、实例IP、实例端口等用于服务治理的重要信息；以及一些用于负载均衡策略或是其他特殊用途的自定义元数据信息
+对应配置类：`org.springframework.cloud.netflix.eureka.EurekaInstanceConfigBean`。springCloud会把上面配置类的信息封装成com.netflix.appinfo.InstanceInfo，然后发给Eureka Server注册服务，其中会携带当前服务的元数据。元数据是指用来描述自身服务信息的对象，其中包含了一些标准化的元数据，比如服务名称、实例名称、实例IP、实例端口等用于服务治理的重要信息；以及一些用于负载均衡策略或是其他特殊用途的自定义元数据信息
 
 #### 2.5.2.1.元数据配置
 
@@ -447,17 +447,17 @@ public RestTemplate restTemplate(){
 
 ## 3.2.核心组件
 
-- **IclientConfig**，ribbon客户端配置。默认使用 com.netflix.client.config.DefaultClientConfigImpl实现
+- **IclientConfig**，ribbon客户端配置。默认使用 `com.netflix.client.config.DefaultClientConfigImpl`实现
 
-- **Irule**，ribbon的负载均衡策略。默认采用com.netflix.loadbalancer.ZoneAvoidanceRule实现，该策略能够在多区域环境下选出最佳区域的实例进行访问
+- **Irule**，ribbon的负载均衡策略。默认采用`com.netflix.loadbalancer.ZoneAvoidanceRule`实现，该策略能够在多区域环境下选出最佳区域的实例进行访问
 
-- **Iping**，Ribbon的实例检查策略。默认采用com.netflix.loadbalancer.NoOpPing实现，该检查策略是一个特殊的实现，实际上它并不会检查实例是否可用，而是始终返回true，默认认为所有服务实例都是可用的
+- **Iping**，Ribbon的实例检查策略。默认采用`com.netflix.loadbalancer.NoOpPing`实现，该检查策略是一个特殊的实现，实际上它并不会检查实例是否可用，而是始终返回true，默认认为所有服务实例都是可用的
 
-- **ServerList**，服务实例清单的维护机制。默认采用 com.netflix.loadbalancer.ConfigurationBasedServerList实现。
+- **ServerList**，服务实例清单的维护机制。默认采用 `com.netflix.loadbalancer.ConfigurationBasedServerList`实现。
 
-- **ServerListFilter**，服务实例清单过滤机制。默认采用 org.springframework.cloud.netflix.ribbon.ZonePreferenceServerListFilter实现，该策略能够优先过滤出与请求调用方处于同区域的服务实例。
+- **ServerListFilter**，服务实例清单过滤机制。默认采用 `org.springframework.cloud.netflix.ribbon.ZonePreferenceServerListFilter`实现，该策略能够优先过滤出与请求调用方处于同区域的服务实例。
 
-- **IloadBalancer**，负载均衡器。默认采用com.netflix.loadbalancer.ZoneAwareLoadBalancer实现，具备区域感知的能力
+- **IloadBalancer**，负载均衡器。默认采用`com.netflix.loadbalancer.ZoneAwareLoadBalancer`实现，具备区域感知的能力
 
 如果想替换掉ribbon默认的配置，在springBoot中只要往IOC容器注入相应的Bean组件即可，例如：想更换ribbon的默认负载均衡配置：
 
@@ -630,9 +630,11 @@ Hystrix是一个用于处理分布式系统延迟和容错的开源库，在分�
 
 ### 5.1.2.服务降级
 
+当服务器压力剧增的情况下，根据实际业务情况及流量，对一些服务不处理或采取简单方式处理，从而释放服务器资源以保证核心服务的正常运作。可以通过【服务降级】临时屏蔽某个出错的非关键服务，并定义降级后的返回策略。
+
 ### 5.1.3.服务熔断
 
-熔断机制是应对“服务雪崩”的链路保护机制，当“扇出”链路的某个微服务不可用或者响应时间过长，会对其进行服务降级，停止对该服务的调用，快速返回错误的响应信息，一旦该服务调用响应正常后恢复调用链路。在springCloud中服务熔断使用Hystrix来实现
+熔断机制是应对“服务雪崩”的链路保护机制，当“扇出”链路的某个微服务不可用或者响应时间过长，会对其进行服务降级，**停止对该服务的调用**，快速返回错误的响应信息，一旦该服务调用响应正常后恢复调用链路。在springCloud中服务熔断使用Hystrix来实现
 
 ## 5.2.使用方式
 
@@ -1357,3 +1359,83 @@ springCloud的消息总线bus，它应用了AMQP消息代理作为通道，通�
    ![](./images/消息总线发送请求.png)
 
    执行这个请求后，消息总线收到更新配置的请求后，就会将消息广播出去！
+
+## 8.3.局部刷新
+
+​	默认情况，当向config-server发送`/bus/refresh`请求时，消息总线会将消息广播到各个config-client上。或许有时候不需要全部都更新，只需要更新指定的client-config节点即可
+
+​	通过在发起/bus/refresh请求时加上参数destination，指定微服务的ApplicationContext ID来实现局部刷新，就像这样：`http://127.0.0.1:10086/bus/refresh?destination=springcloud-config-client:10000`当然它也可以支持通配符。但有个问题，什么是ApplicationContext ID？其实它是跟一个配置挂钩的：`spring.application.index`。通过这个配置可以找到对应的配置类`ContextIdApplicationContextInitializer`，这个类有个getApplicationId()方法，源码如下：
+
+```java
+private String getApplicationId(ConfigurableEnvironment environment) {
+  String name = environment.resolvePlaceholders(this.name);
+  String index = environment.resolvePlaceholders(INDEX_PATTERN);
+  String profiles = StringUtils
+    .arrayToCommaDelimitedString(environment.getActiveProfiles());
+  if (StringUtils.hasText(profiles)) {
+    name = name + ":" + profiles;
+  }
+  if (!"null".equals(index)) {
+    name = name + ":" + index;
+  }
+  return name;
+}
+```
+
+默认如果不配置`spring.application.index`，则取`${application.name}:${port}`作为此微服务的`ApplicationContext ID`，如果设置了，则取`${application.name}:${spring.application.index}`作为`ApplicationContext ID`。
+
+## 8.4.总线事件
+
+当向config-server发送/bus/refresh请求后，可以继续向其发送/trace请求，它会返回消息总线bus的传播细节`http://127.0.0.1:10086/trace`
+
+![](./images/Bus总线事件.png)
+
+# *.补充
+
+## *.1.bootstrap.yml介绍
+
+说到bootstrap.yml，其实就要跟application.yml比较：
+
+**加载顺序：**
+
+- bootstrap.yml先加载；
+
+- application.yml后加载。
+
+**配置区别：**
+
+- bootstrap.yml是系统级的配置，这些配置一般不会变动的；
+
+- application.yml是用户级的资源配置项。
+
+**注意：**
+
+  一旦bootStrap.yml 被加载，则内容不会被覆盖，即便后期加载的application.yml的内容标签与bootstrap的标签一致，application 也不会覆盖bootstrap, 而application.yml 里面的内容可以动态替换。
+
+**启动上下文：**
+
+  工程启动时，springCloud会创建一个"Bootstrap Context"，作为spring应用的"Application Context"的父上下文。初始化时，Bootstrap Context负责从外部源加载配置并解析配置，这两个上下文共享一个从外部获取的"Environment"。Bootstrap属性拥有高优先级，默认情况下，它们不会被本地配置覆盖。Bootstrap context和Application context有着不同的约定，所以新增一个bootstrap.yml文件，保证Bootstrap Context和Application Context配置的分离
+
+## 9.2.webHook介绍
+
+WebHook是当某个事件发生时，通过发送http post请求的方式来通知信息接收方。Webhook来监测你在Github.com上的各种事件，最常见的莫过于push事件。如果你设置了一个监测push事件的Webhook，那么每当你的这个项目有了任何提交，这个Webhook都会被触发，这时Github就会发送一个HTTP POST请求到你配置好的地址。
+
+**配置步骤：**
+
+首先进入到一个仓库，切换settings选项，选择左侧的webHooks，就可以看到下面的页面：
+
+![](./images/github-webHook.png)
+
+ 然后点击右上角的`Add webhook`，就可以添加一个新的webhook，如下图所示：
+
+![](./images/github-webhook_2.png)
+
+各个选项的配置如下：
+
+- **Payload URL** ：触发后回调的URL；
+
+- **Content type** ：数据格式，两种一般使用json；
+
+- **Secret** ：用作给POST的body加密的字符串。采用HMAC算法；
+
+- **events** ：触发的事件列表。

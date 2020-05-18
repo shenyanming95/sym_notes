@@ -368,13 +368,13 @@ eureka:
     # 这边可以配置相对路径, 也可以配置绝对路径, 在客户端使用https协议时, 这边就需要手动
     # 配置成类似：https://${server.context-path}/info.默认springCloud会带上工程根
     # 路径的就是${server.context-path}
-	#主页的URL
+		# 主页的URL
     home-page-url:  https://${server.context-path}/ 
 
-	#状态页的URL, 默认使用spring-boot-actuator模块的/info端点, 也可以配置相对路径
+		# 状态页的URL, 默认使用spring-boot-actuator模块的/info端点, 也可以配置相对路径
     status-page-url: https://${ server.context-path }/info 
 
-	#健康检查的URL, 默认使用spring-boot-actuator模块的/health端点
+		# 健康检查的URL, 默认使用spring-boot-actuator模块的/health端点
     health-check-url: https://${server.context-path}/health 
 ```
 
@@ -871,7 +871,7 @@ zuul的另一个功能就是过滤器的作用，比如可以做一些安全验�
 
 Zuul中定义了四种标过滤器类型：
 
-- **PRE**：此过滤器在请求被路由之前调用。我们可利用这种过滤器实现身份验证、在集群中选择请求的微服务、记录调试信息等；
+- **PRE**：此过滤器在请求被路由之前调用。可利用这种过滤器实现身份验证、在集群中选择请求的微服务、记录调试信息等；
 
 - **route**：此过滤器将请求路由到微服务。用于构建发送给微服务的请求，并使用HttpClient或Ribbon请求微服务；
 
@@ -889,13 +889,13 @@ Zuul中定义了四种标过滤器类型：
 
 <img src="./images/zuul请求流程.png" style="zoom:75%;" />
 
-在一次zuul请求，有一个完整的上下文横贯整个请求链，该上下文就是com.netflix.zuul.context.RequestContext，可以通过以下代码获取它：
+在一次zuul请求，有一个完整的上下文横贯整个请求链，该上下文就是com.netflix.zuul.context.RequestContext，可以通过以下代码获取它，通过该上下文，我们可以从中获取或者设置很多信息，保证整个过滤器链的执行！
 
 ```java
 RequestContext ctx = RequestContext.getCurrentContext();
 ```
 
-通过该上下文，我们可以从中获取或者设置很多信息，保证整个过滤器链的执行！
+
 
 ### 6.2.3.使用方式
 

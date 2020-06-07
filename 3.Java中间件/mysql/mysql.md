@@ -747,15 +747,13 @@ mysql复制过程分为3步：
 
 ## 6.3.一主一从常见配置
 
-以window下的MySQL为主机，配置文件为my.ini
+以window下的MySQL为主机，配置文件为my.ini；以Linux下的MySQL为从机，配置文件为my.cnf 
 
-以Linux下的MySQL为从机，配置文件为my.cnf 
-
-准备工作：
+**准备工作：**
 
 1、主机和从机的Mysql版本要一致
 
-2、主机和从机都配置在相应配置文件的[mysqld]结点下，都是小写
+2、主机和从机都配置在相应配置文件的`[mysqld]`结点下，都是小写
 
 3、主机和从机相互ping通
 

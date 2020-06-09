@@ -1,5 +1,7 @@
 # 1.kafka介绍
 
+![](./images/kafka架构.png)
+
 ## 1.1.基本概念
 
 - **Producer**：生产者即数据的发布者，该角色将消息发布到kafka的topic中。broker将该消息追加到前档用于追加数据的segment中。生产者发送的消息，储存到一个partition中，生产者也可以指定数据储存的partition
@@ -20,11 +22,11 @@
 
 ## 1.2.使用场景
 
-1. 日志收集：kafka可以收集企业级微服务的日志信息，通过统一接口服务的方式开放给各种消费者，诸如Hadoop、Hbase、Solr和Elasticsearch等
-2. 消息系统：解耦和生产者和消费者、缓存消息等
-3. 用户活动跟踪：kafka长用于记录web用户或者app用户的各种活动，例如浏览网页、搜索、点击等活动，这些活动信息发布到kafka的topic中，然后消费者通过订阅这些topic做实时的监控分析，或者装载到Hadoop、数据仓库中做离线分析和挖掘
-4. 运营指标：kafka常用于记录运营监控数据，包括手机各种分布式应用的数据，生产各种操作的几种反馈，比如报警和报告
-5. 流式处理：比如spark streaming和storm
+1. **日志收集**：kafka可以收集企业级微服务的日志信息，通过统一接口服务的方式开放给各种消费者，诸如Hadoop、Hbase、Solr和Elasticsearch等
+2. **消息系统**：解耦和生产者和消费者、缓存消息等
+3. **用户活动跟踪**：kafka长用于记录web用户或者app用户的各种活动，例如浏览网页、搜索、点击等活动，这些活动信息发布到kafka的topic中，然后消费者通过订阅这些topic做实时的监控分析，或者装载到Hadoop、数据仓库中做离线分析和挖掘
+4. **运营指标**：kafka常用于记录运营监控数据，包括手机各种分布式应用的数据，生产各种操作的几种反馈，比如报警和报告
+5. **流式处理**：比如spark streaming和storm
 
 ## 1.3.技术优势
 
@@ -34,3 +36,80 @@
 
 - **容错性和可靠性**：kafka的设计方式使某个代理的故障能够被集群中的其它代理检测到，由于每个主题都可以在多个代理上复制，所以集群可以在不中断服务的情况下从此类故障中恢复并继续运行
 - **吞吐量**：代理能够以超快的速度有效地储存和检索数据
+
+# 2.安装&配置
+
+kafka官网下载地址：[https://kafka.apache.org/downloads](https://kafka.apache.org/downloads)
+
+zookeeper下载地址：[https://archive.apache.org/dist/zookeeper/](https://archive.apache.org/dist/zookeeper/)
+
+## 2.1.window
+
+**①**首先保证java环境和zookeeper环境能搭建成功，然后先启动zookeer
+
+```bash
+## 进入到zookeeper的安装目录的bin文件夹下执行
+zkServer.cmd
+```
+
+![](./images/启动zookeeper.png)
+
+**②**下载解压kafka的压缩包，修改config目录下的server.properties，详细配置信息在[配置文件](#2.3.配置文件)一栏，这边只需要修改下log.dirs的信息为指定的文件夹地址即可。然后进入kafka的安装目录（kafka专门有提供一个window的bat执行命令目录），执行命令：
+
+```bash
+## 启动kafka的broker
+.\bin\windows\kafka-server-start.bat .\config\server.properties 
+```
+
+![](./images/启动kafka-broker.png)
+
+**③**创建kafka主题topic，进入kafka安装目录/bin/window/，执行命令：
+
+```bash
+## 参数的含义
+## --create, 表示创建主题
+## --zookeeper, 表示zk连接地址
+## --replication-factor, 表示副本个数, 单机启动最大只能为1
+## --partitions, 表示分片个数
+## --topic, 指定主题名称
+kafka-topics.bat --create --zookeeper localhost:2181 --replication-factor 1 --partitions 1 --topic demo 
+```
+
+![](./images/创建kafka-topic.png)
+
+**④**创建kafka生产者producer，进入kafka安装目录/bin/window，执行命令：
+
+```bash
+## 绑定上面的topic
+kafka-console-producer.bat --broker-list localhost:9092 --topic demo 
+```
+
+**⑤**创建kafka消费者consumer，进入kafka安装目录/bin/window，执行命令：
+
+```bash
+## 订阅上面的topic
+kafka-console-consumer.bat --bootstrap-server localhost:9092 --topic demo
+```
+
+## 2.2.linux
+
+
+
+## 2.3.配置文件
+
+kafka的启动文件位于config目录下的server.properties，其中有几个重要的配置：
+
+```properties
+# 表示broker的编号, 集群中每个broker的编号必须不一样
+broker.id=0
+
+# broker对外提供的服务入口地址
+listeners=PLAINTEXT://:9092
+
+# 日志存放地址
+log.dirs=/tmp/kafka/log
+
+# zookeeper集群连接地址
+zookeeper.connect=localhost:2181
+```
+

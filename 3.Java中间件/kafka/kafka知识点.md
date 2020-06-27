@@ -113,7 +113,7 @@ log.dirs=/tmp/kafka/log
 zookeeper.connect=localhost:2181
 ```
 
-# 3.生产者
+# 3.生产者Producer
 
 kafka消息的发送方
 
@@ -167,7 +167,7 @@ producer的其它属性设置，官方文档内容：[https://kafka.apache.org/d
 
 该参数用于控制生产者发送的请求大小，它可以指定能发送的单个消息的最大值，也可以指定单个请求所有消息的总大小。`broker`对可接受的消息最大值也有自己的限制（`message.max.size`），所以两边配置最好匹配，防止生产者发送的消息被broker拒绝
 
-# 4.消费者
+# 4.消费者Consumer
 
 ## 4.1.消费者和消费组
 
@@ -219,7 +219,7 @@ consumer的其它属性配置，官方文档内容：[https://kafka.apache.org/d
 
 控制 poll()调用返回的记录数，这个可以用来控制应用在拉取循环中的处理数据量。
 
-# 5.主题Topic管理
+# 5.主题Topic
 
 topic配置，官方文档内容：[https://kafka.apache.org/documentation/#topicconfigs](https://kafka.apache.org/documentation/#topicconfigs)
 
@@ -284,7 +284,7 @@ kafka只能增加分区，不能减少分区
 bin/kafka-topics.sh --alter --zookeeper localhost:2181 --topic sym_demo --partition 3
 ```
 
-# 6.分区
+# 6.分区Partition
 
 kafka将主题划分为多个分区（partition），会根据分区规则选择把消息存储到哪个分区中。如果分区规则设置的合理，那么所有的消息将会被均匀地分布到不同的分区中，这样就实现了负载均衡和水平扩展。另外，多个订阅者可以从一个或者多个分区中同时消费数据，以支撑海量数据处理能力。注：由于消息时以追加到分区中，多个分区顺序写磁盘的总效率比随机写内存还要高，是kafka高吞吐量的重要保障之一
 
@@ -293,3 +293,121 @@ kafka将主题划分为多个分区（partition），会根据分区规则选择
 Kafka 0.8 以后，提供了 HA 机制，就是 replica（复制品） 副本机制。一个主题可以有多个分区，例如下图，红色部分：topic1-part0、topic1-part1、topic1-part2，表示主题topic1分为了3个分区；同时每个分区都有2个副本（绿色部分），这些副本保存在不同的broker上（分区和它的副本最好不要保存在同一个节点上），在一个broker出错时，leader在这台broker上的分区会变得不可用，kafka会自动移除leader，再从其它副本中选一个作为新的leader。
 
 ![](./images/kafka副本机制.png)
+
+## 6.2.分区分配策略
+
+kafka默认的消费逻辑设定，一个分区只能被同一个消费组内的一个消费者消费，如果消费者过多，出现了消费者的数量大于分区的数量，那么就会有消费者分配不到任何分区 。kafka提供了消费者客户端参数partition.assignment.strategy用来设置消费者与订阅主题之间的分配策略，默认情况下，此参数的值为`org.apache.kafka.clients.consumer.RangeAssignor`。kafka还提供了另外两种分配策略：`org.apache.kafka.clients.consumer.RoundRobinAssignor`和`org.apache.kafka.clients.consumer.StickyAssignor`。kafka允许这只多个分配策略，彼此之间用逗号分隔
+
+### 6.2.1.RangeAssignor
+
+RangeAssignor策略的原理是按照消费者总数和分区总数进行整除运算来获得一个跨度，然后将分区按照跨度进行平均分配。对于每一个topic，RangeAssignor策略会将消费组内所有订阅这个topic的消费者按照名字的字典序排序，然后为每个消费者划分固定的分区范围，如果不够平均分配，那么字典序靠前的消费者会多分配一个分区。
+
+假设n=分区数/消费者数，m=分区数%消费者数，那么前m个消费者每个分配n+1个分区，后面的（消费者数量-m）个消费者每个分配n个分区
+
+### 6.2.2.RoundRobinAssignor
+
+RoundRobinAssignor策略的原理是将消费组内所有消费者以及消费者所订阅的所有topic按照partition按照字典序排序，然后通过轮询方式组个将分区依次分配给每个消费者。
+
+假设消费组中有2个消费者C0和C1，都订阅了主题t0和t1，并且每个主题都有3个分区，那么所订阅的所有分区可以标识为：t0p0，t0p1，t0p2，t1p0，t1p1，t1p2。最终的分配结果
+
+```tex
+消费者C0：t0p0，t0p2，t1p1
+消费者C1：t0p1，t1p0，t1p2
+```
+
+但是同一个消费组内的消费者所订阅的信息是不同的，就会出现分配不均匀的现象，如果某个消费者没有订阅消费组内的某个topic，那么在分配分区的时候此消费者将分配不到这个topic的任何分区。例如：某个消费组内的有3个消费者C0、C1和C2，消费组订阅了t0、t1和t2，这3个主题分别有1、2、3个分区，即整个消费组订阅了t0p0、t1p0、t1p1、t2p0、t2p1、t2p3共6个分区。而且，消费者C0订阅的是t0主题，C1订阅t0和t1主题，C2订阅t0、t1和t2，那么最终结果为：
+
+```tex
+消费者C0：t0p0
+消费者C1：t1p0
+消费者C2：t1p1、t2p0、t2p1、t2p2
+```
+
+其实可以吧分区t1p1分配给C1消费，减轻C2的研力
+
+### 6.2.3.StickyAssignor
+
+StickyAssignor策略是从kafka 0.11x版本开始引入，它有两个目的：
+
+- 分区的分配要尽可能地均匀
+- 分区的分配要尽可能的与上次分配的保持相同
+
+如果上面两者发生冲突，第一个目标优先于第二个目标
+
+# 7.存储结构
+
+每一个partition相当于一个巨型文件，被平均分配到多个大小相等的segment（段）数据文件里。但每一个segment file消息数量不一定相等，这样的特性方便old segment file高速被删除，默认情况下每一个segment file文件大小为1G。partition仅仅只要支持顺序读写即可，segment文件生命周期由服务器配置参数决定。
+
+segment file由两大部分组成：index file和data file，后缀`.index`和`.log`分别表示sgement索引文件、数据文件
+
+## 7.1.日志索引
+
+### 7.1.1.数据文件分段
+
+比如说有100条message，它们的offset是从0~99，假设将数据分为5段，依次为0-19,20-39,40-59...以此类推，每段放在一个单独的数据文件里面，数据文件以该段中最小的offset命名。这样再查找指定offset的Message时，用二分查找就可以定位到该Message在哪个段中
+
+### 7.1.2.偏移量索引
+
+在数据文件分段的基础上，kafka为每个分段后的数据文件建立了索引文件，文件名与数据文件的名字是一样的，只是文件扩展名为`.index`。
+
+![](./images/kafka偏移量索引.png)
+
+比如要查找offset为7的Message，
+
+- 首先是用二分查找确定他是在哪个LogSegment中，自然是第一个Segment中；
+- 打开这个Segment的index文件，用二分查找找到offset小于或等于指定offset的索引条目中最大的那个offset；
+- 自然offset为6的索引就是要找的项，通过索引文件可得offset为6的Message在数据文件中的位置为9807
+
+这套机制是建立在offset是有序的，索引文件被映射到内存中，所以查找的速度还是很快的。总而言之，kafka的消息存储采用了分区（partition）、分段（LogSegment）和稀疏索引等方式以实现高效性！
+
+## 7.2.日志清理
+
+### 7.2.1.日志删除
+
+kafka日志管理器允许订制删除策略，默认策略是删除修改时间N天之前的日志（也就是按时间删除），也可以使用另外一个策略，保留最后的N GB数据的策略（按大小删除）。同时，为了避免在删除的时候阻塞读操作，采用了copy-on-write形式的实现，删除操作进行时，读取操作的二分查找功能实际是在一个静态的快照副本上进行，这类似于java的CopyOnWriteArrayList
+
+```properties
+#启用删除策略
+log.cleanup.policy=delete
+# 超过指定时间清理
+log.retention.hours=16
+# 超过指定大小后，删除旧的信息
+log.retention.bytes=1073741824
+```
+
+### 7.2.2.日志压缩
+
+将数据压缩，只保留每个key最后一个版本的数据。首先在broker的配置中设置`log.cleaner.enbale=true`启用cleaner，这个默认是关闭的。在Topic的配置中设置`log.cleanup.policy=compact`启用压缩策略
+
+## 7.2.磁盘存储
+
+kafka实现高吞吐量的存储原因：
+
+- 消息顺序追加
+- 页缓存
+- 零拷贝
+
+### 7.2.1消息顺序追加
+
+kafka在设计的时候，采用文件追加的方式来写入消息，即只能在日志文件的尾部追加新的消息，并且不允许修改已经写入的消息，这种方式属于典型的顺序写入操作。
+
+### 7.2.2.页缓存
+
+kafka中大量使用页缓存，也是kafka实现高吞吐量的重要因素之一
+
+### 7.2.3.零拷贝
+
+kafka零拷贝技术只用将磁盘文件的数据复制到页面缓存一次，就可以将数据从页面缓存直接发送到网络中（发送给不同的订阅者时，都可以使用同一个页面缓存），避免重复操作。例如：假设有10个消费者，传统方式下，数据复制次数为4*10=40次，而使用零拷贝技术，只要1+10=11次，一次为从磁盘复制到页面缓存，10次表示10个消费者各自读取一次页面缓存。
+
+# 8.稳定性
+
+## 8.1.幂等性
+
+生产者才发生消息给broker，期间如果发生网络异常，生产者由于没有收到broker的ack响应，会重新发送消息。在生产者进行重试的时候，就有可能会重复写入消息，kafka的幂等性可以避免这种情况，但是kafka的幂等性具有一定的限制性：
+
+- 会话级别的幂等性，kafka只能保证producer在单个会话内不丢不重，如果producer出现宕机再重启是无法保证幂等的（无法获取之前的幂等状态信息）、
+- 幂等性不能跨多个Topic-partition，只能保证单个partition内的幂等性，当涉及多个Topic-partition时，这中间的状态并没有同步
+
+producer使用幂等性的示例非常简单，只需要把producer的配置`enable.udempotence`设置为true即可
+
+## 8.2.事务

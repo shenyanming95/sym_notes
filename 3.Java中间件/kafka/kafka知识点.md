@@ -171,3 +171,125 @@ producer的其它属性设置，官方文档内容：[https://kafka.apache.org/d
 
 ## 4.1.消费者和消费组
 
+## 4.2.消息接收
+
+### 4.2.1.位移提交
+
+对于kafka而言，它的每条消息都有唯一的offset，表示消息在分区中的位置。当消息从broker返回消费者时，broker并不会跟踪消息是否被消费者消费到，而是让消费者自身来管理消费的位移，并向消费者提供更新位移的接口，这种更新位移的方式成为提交(commit)，注意kafka只保证消息在一个分区的顺序性
+
+- 自动提交
+- 同步提交
+- 异步提交
+
+### 4.2.2.指定位移
+
+### 4.2.3.再均衡
+
+再均衡，指的是在kafka consumer所订阅的topic发生变化时发生的一种分区partition重分配机制，一般有三种情况：
+
+- consumer group新增或者删除某个consumer，导致其所消费的分区需要分配到组内其他的consumer上；
+- consumer订阅的topic发生变化，比如订阅的topic采用的是正则表达式的形式，如`test-*`。此时如果有一个新建了一个topic `test-user`，那么这个topic的所有分区也是会自动分配给当前的consumer的，此时就会发生再平衡；
+- consumer所订阅的topic发生了新增分区的行为，那么新增的分区就会分配给当前的consumer，此时就会触发再平衡
+
+kafka提供的再平衡策略主要有三种：`Round Robin`，`Range`和`Sticky`，默认使用的是`Range`。这三种分配策略的主要区别在于：
+
+- `Round Robin`：会采用轮询的方式将当前所有的分区依次分配给所有的consumer；
+- `Range`：首先会计算每个consumer可以消费的分区个数，然后按照顺序将指定个数范围的分区分配给各个consumer；
+- `Sticky`：这种分区策略是最新版本中新增的一种策略，其主要实现了两个目的：
+  - 将现有的分区尽可能均衡的分配给各个consumer，存在此目的的原因在于`Round Robin`和`Range`分配策略实际上都会导致某几个consumer承载过多的分区，从而导致消费压力不均衡；
+  - 如果发生再平衡，那么重新分配之后在前一点的基础上会尽力保证当前未宕机的consumer所消费的分区不会被分配给其他的consumer上；
+
+## 4.3.其它属性配置
+
+consumer的其它属性配置，官方文档内容：[https://kafka.apache.org/documentation/#consumerconfigs](https://kafka.apache.org/documentation/#consumerconfigs)
+
+### 4.3.1.fetch.min.bytes
+
+允许消费者指定从broker读取消息时最小的数据量。当消费者从broker读取消息时，若数据量小于这个阈值，broker会等待直到有足够的数据，然后才返回给消费者。对于写入量不高的主题来说，这个参数可以减少broker和消费者的压力，因为减少了网络传输的消耗。而对于有大量消费者的topic来说，则可以明显减轻broker压力
+
+### 4.3.2.fetch.max.wait.ms
+
+指定了消费者读取时最长等待时间，从而避免长时间阻塞，该参数默认为500ms
+
+### 4.3.3.max.partition.fetch.bytes
+
+指定每个分区返回的最多字节数，默认为1M。也就是说，kafkaConsumer.poll()返回记录列表时，每个分区的记录字节数最多为1M。如果一个主题有20个分区，同时有5个消费者，那么每个消费者需要4M的空间来处理消息
+
+### 4.3.4.max.poll.records
+
+控制 poll()调用返回的记录数，这个可以用来控制应用在拉取循环中的处理数据量。
+
+# 5.主题Topic管理
+
+topic配置，官方文档内容：[https://kafka.apache.org/documentation/#topicconfigs](https://kafka.apache.org/documentation/#topicconfigs)
+
+## 5.1.创建主题
+
+```powershell
+bin/kafka-topic.sh --zookeeper localhost:2181 --create --topic sym_demo --partition 2 --replication-factor 1
+```
+
+- --zookeeper，设置zookeeper所在的地址，为必传参数，多个zookeeper用“,"分开
+- --partition，由于设置主题分区数
+- replication-factor，设置主题副本数，每个副本分布在不同节点，不
+
+## 5.2.查看主题
+
+```powershell
+## 查看所有主题
+bin/kafka-topics.sh --list --zookeeper localhost:2181
+```
+
+```powershell
+## 查看特定主题
+bin/kafka-topics.sh --describe --zookeeper localhost:2181 --topic sym_demo
+```
+
+## 5.3.修改主题
+
+```powershell
+## 修改配置
+bin/kafka-topics.sh --alter --zookeeper localhost:2181 --topic sym_demo --config flush.message=1
+```
+
+- --alter表示修改命令
+- --topic指定主题
+- --config，后面跟着要修改的配置项，以key:value的形式
+
+```powershell
+## 删除配置
+bin/kafka-topics.sh --alter --zookeeper localhost:2181 --topic sym_demo --delete-config flush.message
+```
+
+- --delete-config，表示删除配置
+
+## 5.4.删除主题
+
+删除主题受到kafka配置影响：
+
+- 若delete.topic.enable=true，直接彻底删除该topic
+- 若delete.topic.enable=false，分为两种情况
+  - 如果当前topic没有使用过即没有传输过消息，可以彻底删除；
+  - 如果当前topic使用过即传输过消息，并没有真正删除topic，只是将它标记为删除(marked for deletion)，重启kafka server后删除
+
+```powershell
+bin/kafka-topics.sh --delete --zookeeper localhost:2181 --topic sym_demo
+```
+
+## 5.5.增加分区
+
+kafka只能增加分区，不能减少分区
+
+```powershell
+bin/kafka-topics.sh --alter --zookeeper localhost:2181 --topic sym_demo --partition 3
+```
+
+# 6.分区
+
+kafka将主题划分为多个分区（partition），会根据分区规则选择把消息存储到哪个分区中。如果分区规则设置的合理，那么所有的消息将会被均匀地分布到不同的分区中，这样就实现了负载均衡和水平扩展。另外，多个订阅者可以从一个或者多个分区中同时消费数据，以支撑海量数据处理能力。注：由于消息时以追加到分区中，多个分区顺序写磁盘的总效率比随机写内存还要高，是kafka高吞吐量的重要保障之一
+
+## 6.1.副本机制
+
+Kafka 0.8 以后，提供了 HA 机制，就是 replica（复制品） 副本机制。一个主题可以有多个分区，例如下图，红色部分：topic1-part0、topic1-part1、topic1-part2，表示主题topic1分为了3个分区；同时每个分区都有2个副本（绿色部分），这些副本保存在不同的broker上（分区和它的副本最好不要保存在同一个节点上），在一个broker出错时，leader在这台broker上的分区会变得不可用，kafka会自动移除leader，再从其它副本中选一个作为新的leader。
+
+![](./images/kafka副本机制.png)

@@ -92,7 +92,7 @@ private void ensureExplicitCapacity(int minCapacity) {
 
 还有`elementData[size++] = e;`并不是原子操作，它为两步：`elementData[size] = e;`和`size++`，当t1设置完新值后还没来得及将size++，t2也执行了这行代码，那么t1设置的元素就会被覆盖，最终导致元素变少了
 
-## 2.CopyOnWriteArrayList源码
+# 2.CopyOnWriteArrayList源码
 
 CopyOnWriteArrayList的成员变量如下，其实相比于ArrayList多出了一个ReentrantLock，这是为了在写入的时候加锁使用
 

@@ -33,7 +33,7 @@ public final static int MAX_PRIORITY = 10; //级别最大
 
 ### 1.3.1.继承Thread
 
-继承Thread类,重写run方法,调用Thread.start()方法便可以启动线程
+继承Thread类，重写run方法，调用Thread.start()方法便可以启动线程
 
 ```java
 /**
@@ -43,14 +43,15 @@ public class MyThread extends Thread {
     /**
      * 线程要执行的逻辑，写在run()方法里
      */
-@Override
-public void run() {
-        System.out.println("线程正在执行...");
+    @Override
+    public void run() {
+      System.out.println("线程正在执行...");
     }
+  
     public static void main(String[] args){
-        /* 通过调用start()就可以开启线程 */
-        MyThread myThread = new MyThread();
-        myThread.start();
+      // 通过调用start()就可以开启线程
+      MyThread myThread = new MyThread();
+      myThread.start();
     }
 }
 
@@ -73,7 +74,7 @@ public class MyThread implements Runnable {
         System.out.println("线程正在执行...");
     }
     public static void main(String[] args){
-        /* 将接口实现类传给Thread()，再调用start()方法允许线程 */
+        // 将接口实现类传给Thread()，再调用start()方法允许线程
         MyThread myThread = new MyThread();
         new Thread(myThread).start();
     }
@@ -97,6 +98,7 @@ public class MyThread implements Callable<String> {
     public String call() throws Exception{
         return "线程执行后结果...";
     }
+  
     public static void main(String[] args){
         // 实例化Callable接口 -> 来创建FutureTask对象 -> 创建Thread对象
         FutureTask<String> ft = new FutureTask<>(new MyThread());
@@ -115,7 +117,7 @@ public class MyThread implements Callable<String> {
 
 ## 1.4.终止线程
 
-在Thread中，有几个过期方法：suspend()、resume()和stop()，它们分别代表暂停、恢复和终止线程。suspend()方法调用后，线程会占有着资源(比如锁)进入睡眠状态，易引发死锁问题；而stop()方法会直接杀死线程，很有可能资源还没释放，线程就已经停掉，导致程序运行处于不确定状态。因此，当前终止线程推荐使用**中断标志位**，由我们在程序中显示确定线程还要不要执行：
+在Thread中，有几个过期方法：`suspend()`、`resume()`和`stop()`，它们分别代表暂停、恢复和终止线程。suspend()方法调用后，线程会占有着资源(比如锁)进入睡眠状态，易引发死锁问题；而stop()方法会直接杀死线程，很有可能资源还没释放，线程就已经停掉，导致程序运行处于不确定状态。因此，当前终止线程推荐使用**中断标志位**，由我们在程序中显示确定线程还要不要执行：
 
 ```java
 Thread t = new Thread(()->{
@@ -321,7 +323,7 @@ t1在循环到i=5时，让出cpu资源，而t2先于t1抢到cpu资源，所以�
 
 interrupt()可以标志线程的中断状态为true，它并不能中止线程的运行。使用它分为两种情况：
 
- ①对于阻塞的线程，调用interrupt()方法会立即抛出InterruptedException异常，并且清除此线程的中断状态
+①对于阻塞的线程，调用interrupt()方法会立即抛出InterruptedException异常，并且清除此线程的中断状态
 
 ②对于正在运行的线程，调用interrupt()方法只是标志它为中断状态，并不会停止线程的运行
 
@@ -579,7 +581,7 @@ volatile是Java中的关键字，用来实现变量的可见性：即一个线�
 
 假设两个线程(CPU)并行操作共享变量initFlag，它们分别先执行了JMM规定的read和load两个原子操作将主内存数据拷贝到各自工作内存中，此时的initFlag=false，这时候线程2获取到时间片，它执行use和assign操作，将initFlag的值由false改为true，就在这个瞬间，MESI缓存一致性原则生效，线程2会立即执行store和write原子操作，将initFlag的新值写回到主内存里，同时借助总线嗅探机制的监听，会让线程1工作内存中的initFlag的内存地址失效掉(可以理解为置空了)，线程1这时候就会重新执行read和load个原子操作，重新将initFlag读回到自己的工作内存里面去，这时候执行引擎就会拿到最新值（执行引擎是一直与线程工作内存打交道的，发现工作内存的数据失效了，它也执行不了了）
 
- 这里可能会有个疑问：线程2修改共享变量后，立即写回主内存，同时线程1由于内存失效，它也会去读主内存，如果线程1优先于线程2执行，线程1岂不是仍然读到旧值？其实不会，注意看上图，线程2在执行store和write两个原子操作之前，会对主内存的initFlag加一个缓存行锁(这个锁超级快，可以忽略不计)，在write原子操作没执行完之前，线程1如果想读取主内存的initFlag，只能先等待，这样就保证了线程1拿到的数据是最新值！
+这里可能会有个疑问：线程2修改共享变量后，立即写回主内存，同时线程1由于内存失效，它也会去读主内存，如果线程1优先于线程2执行，线程1岂不是仍然读到旧值？其实不会，注意看上图，线程2在执行store和write两个原子操作之前，会对主内存的initFlag加一个缓存行锁(这个锁超级快，可以忽略不计)，在write原子操作没执行完之前，线程1如果想读取主内存的initFlag，只能先等待，这样就保证了线程1拿到的数据是最新值！
 
 ## 3.3.使用场景
 
@@ -917,7 +919,7 @@ Mark Word总结：
 
 **关闭偏向锁**
 
-偏向锁在Java 6和Java 7里是默认启用的，但是它在应用程序启动几秒钟之后才激活，如有必要可以使用JVM参数来关闭延迟：-XX:BiasedLockingStartupDelay=0；如果你确定应用程序里所有的锁通常情况下处于竞争状态，可以通过JVM参数关闭偏向锁：-XX:-UseBiasedLocking=false，那么程序默认会进入轻量级锁状态。
+偏向锁在Java 6和Java 7里是默认启用的，但是它在应用程序启动几秒钟之后才激活，如有必要可以使用JVM参数来关闭延迟：`-XX:BiasedLockingStartupDelay=0`；如果你确定应用程序里所有的锁通常情况下处于竞争状态，可以通过JVM参数关闭偏向锁：`-XX:-UseBiasedLocking=false`，那么程序默认会进入轻量级锁状态。
 
 #### 4.2.3.2.轻量级锁→重量级锁
 
@@ -953,7 +955,7 @@ ThreadLocal，叫做线程本地变量，或者线程本地存储。它可以为
 // 定义一个ThreadLocal用来保存Data对象，它不需要做同步处理
 private static ThreadLocal<ThreadData> threadLocal = new ThreadLocal<>();
 public static void main(String[] args) {
-    // 开启两个线程
+    // 线程1
     new Thread(() -> {
         ThreadData data = new ThreadData(1, "线程1的变量");
         System.out.println("线程1赋值："+data);
@@ -963,7 +965,8 @@ public static void main(String[] args) {
         new PrintA().print();
         new PrintB().print();
     }, "线程1").start();
-
+  	
+		// 线程2
     new Thread(() -> {
         ThreadData data = new ThreadData(2, "线程2的变量");
         System.out.println("线程2赋值："+data);
@@ -982,7 +985,6 @@ static class PrintA {
         System.out.println(Thread.currentThread().getName() + "-> A模块 ->" + threadData);
     }
 }
-
 // 创建内部类B模拟模块2的使用
 static class PrintB {
     public void print() {
@@ -1020,20 +1022,15 @@ new Thread(()->{
 },"父线程").start();
 ```
 
-执行结果：
-
-![](./images/父子线程执行结果.png)
-
 若要求子线程能够获取父线程的变量副本，就要使用InheritableThreadLocal类。这个类是JDK提供的工具类，原理跟ThreadLocal一样，都是操作Thread类中的ThreadLocalMap，源码如下：
 
 ```java
-/* ThreadLocal values pertaining to this thread. This map is maintained
-* by the ThreadLocal class. */
+/* ThreadLocal values pertaining to this thread. This map is maintained by the ThreadLocal class. */
 ThreadLocal.ThreadLocalMap threadLocals = null;
 
 /*
- * InheritableThreadLocal values pertaining to this thread. This map is
- * maintained by the InheritableThreadLocal class.
+ * InheritableThreadLocal values pertaining to this thread. This map is maintained by the InheritableThreadLocal
+ * class.
  */
 ThreadLocal.ThreadLocalMap inheritableThreadLocals = null;
 ```
@@ -1044,6 +1041,434 @@ ThreadLocal.ThreadLocalMap inheritableThreadLocals = null;
 if (inheritThreadLocals && parent.inheritableThreadLocals != null)
             this.inheritableThreadLocals =
                 ThreadLocal.createInheritedMap(parent.inheritableThreadLocals);
+```
+
+## 5.4.源码分析
+
+ThreadLocal虽然用起来很简单，只要使用set()、get()和remove()就行了，但是它的源码涉及的内容还是挺复杂的。ThreadLocal的原理就是将自己作为key，保存到Thread的`threadLocals（ThreadLocalMap）`属性中，由于每个线程拥有各自的Thread对象，所以实现线程隔离的效果，保证了线程安全。ThreadLocal类的定义：
+
+```java
+public class ThreadLocal<T> {
+  	// 每个ThreadLocal都有自己的一个threadLocalHashCode，一旦生成便不会再改变.
+    private final int threadLocalHashCode = nextHashCode();
+  
+  	// 下面这两个属性和一个方法，是用来生成ThreadLocal实例的threadLocalHashCode值，是原子性的.
+    private static AtomicInteger nextHashCode = new AtomicInteger();
+  	// 斐波那契散列乘数，让哈希码能均匀的分布在2的N次方的数组里, 即ThreadLocalMap的Entry[]里
+    private static final int HASH_INCREMENT = 0x61c88647;
+    private static int nextHashCode() {
+      return nextHashCode.getAndAdd(HASH_INCREMENT);
+    }
+}
+```
+
+### 5.4.1.ThreadLocalMap
+
+ThreadLocalMap是ThreadLocal的一个内部类，Thread的`threadLocals`也是持有对它的引用，所以它才是ThreadLocal功能实现的基础类，它的类定义如下：
+
+```java
+static class ThreadLocalMap {
+  // ThreadLocalMap也定义了一个内部类Entry, 直接继承了WeakReference
+  static class Entry extends WeakReference<ThreadLocal<?>> {
+    // 这个值就是ThreadLocal保存的值
+    Object value;
+    // 构造方法, 传入一个ThreadLocal作为key和具体要保存的值. 所以
+    Entry(ThreadLocal<?> k, Object v) {
+      // 键ThreadLocal是作为一个弱引用保存在Entry中, 一个对象如果只有弱引用, 那么这个对象在发生GC的时候
+      // 会被自动回收掉. 所以如果外部该ThreadLocal的引用断开了，那么这个ThreadLocal会在GC的时候被回收，
+      // 此时保存在Entry的key就会变成null.
+      super(k);
+      value = v;
+    }
+  }
+  // 初始大小
+  private static final int INITIAL_CAPACITY = 16;
+  // Entry数组, 用来存放不同代码设置的ThreadLocal数据
+  private Entry[] table;
+  // 真实大小
+  private int size = 0;
+  // 扩容因子
+  private int threshold;
+}
+```
+
+#### 5.4.1.1.createMap()
+
+在调用`ThreadLocal#set()`方法时，当前线程`Thread`如果没有没有初始化`threadLocals`属性，就会先调用`createMap()`方法为其创建一个`ThreadLocalMap`，源码如下：
+
+```java
+// 源码：ThreadLocal - 243行
+void createMap(Thread t, T firstValue) {
+  // 调用ThreadLocalMap的构造方法创建一个ThreadLocalMap, 然后赋值给Thread对象的threadLocals属性
+  t.threadLocals = new ThreadLocalMap(this, firstValue);
+}
+```
+
+其实就是调用ThreadLocalMap的构造方法，然后把当前的ThreadLocal对象和要设置的值传递进去，源码为：
+
+```java
+// 源码：ThreadLocal - 365行
+ThreadLocalMap(ThreadLocal<?> firstKey, Object firstValue) {
+  // 创建Entry[], 默认大小为16
+  table = new Entry[INITIAL_CAPACITY];
+  // 每个ThreadLocal实例都有自己的一个hash值即threadLocalHashCode(全局唯一)，让它与数组容量进行与运算,
+  // 以获取Entry[]数组下标
+  int i = firstKey.threadLocalHashCode & (INITIAL_CAPACITY - 1);
+  // 在指定下标的位置创建Entry对象, 其中firstKey是当前的ThreadLocal对象, 它会以弱引用的形式保存在Entry
+  table[i] = new Entry(firstKey, firstValue);
+  // 因为现在是初始化ThreadLocalMap, 并且设置了一个新值, 所以size置为1
+  size = 1;
+  // 设置扩容因子
+  setThreshold(INITIAL_CAPACITY);
+}
+```
+
+#### 5.4.1.2.setThreshold()
+
+设置ThreadLocalMap中Entry[]数组的扩容因子
+
+```java
+/**
+ * Set the resize threshold to maintain at worst a 2/3 load factor.
+ */
+private void setThreshold(int len) {
+  threshold = len * 2 / 3;
+}
+```
+
+#### 5.4.1.3.nextIndex()
+
+获取当前下标i的下一个索引位置，其实就是i+1，在达到len长度后重置为0
+
+```java
+/**
+ * Increment i modulo len.
+ */
+private static int nextIndex(int i, int len) {
+  return ((i + 1 < len) ? i + 1 : 0);
+}
+```
+
+#### 5.4.1.4.prevIndex()
+
+获取当前下标i的前一个索引位置，其实就是i-1，在达到-1后重置为len-1
+
+```java
+/**
+ * Decrement i modulo len.
+ */
+private static int prevIndex(int i, int len) {
+  return ((i - 1 >= 0) ? i - 1 : len - 1);
+}
+```
+
+### 5.4.2.set()
+
+`ThreadLocal#set()`方法实际调用的就是`ThreadLocalMap#set()`方法，源码如下：
+
+```java
+// 源码：ThreadLocal - 454行
+private void set(ThreadLocal<?> key, Object value) {
+  // 计算落在Entry[]数组的下标
+  Entry[] tab = table;
+  int len = tab.length;
+  int i = key.threadLocalHashCode & (len-1);
+  
+  // ThreadLocalMap是采用开放地址法来处理hash冲突的, 如果当前下标i的位置上已经有对象了, 就取它的下一个地址, 即i + 1, 直至i到达
+  // Entry[]大小后重置为0. 所以有可能计算得到的索引下标并不是当前ThreadLocal真正的存放地址下标i, 这边就会通过i + 1一直遍历获取,
+  // 当每次找到Entry[i]不为null时就会进入下面的for逻辑,
+  // 跳出循环有两种情况: 1.找到相等的ThreadLocal对象；
+  // 								  2.找到下标i，使得Entry[i]为null
+  for (Entry e = tab[i]; e != null; e = tab[i = nextIndex(i, len)]) {
+      // 获取Entry中key的引用, 即ThreadLocal对象.
+      ThreadLocal<?> k = e.get();
+      // 如果此时是同一个ThreadLocal对象, 那就执行修改, 把值覆盖掉, 然后方法返回.
+      if (k == key) {
+          e.value = value;
+          return;
+      }
+    
+      // 如果key为null, 说明ThreadLocal对象被回收了, 那就调用replaceStaleEntry()替换当前位置的Entry，然后方法返回.
+      if (k == null) {
+        replaceStaleEntry(key, value, i);
+        return;
+      }
+  }
+  
+  // 代码执行到这里, 要么原先下标为i的Entry就为null，要么就是使用开放地址法偏移到一个位置i, 那边的Entry[i]为null. 这时候处理就
+  // 简单，直接创建一个新的Entry放进去
+  tab[i] = new Entry(key, value);
+  int sz = ++size;
+  // 如果需要扩容, 执行扩容
+  if (!cleanSomeSlots(i, sz) && sz >= threshold)
+    rehash();
+}
+```
+
+#### 5.4.2.1.replaceStaleEntry()
+
+当调用`ThreadLocal#set()`方法设值时，如果遍历Entry[]数组发现下标i的Entry对象的key（即ThreadLocal对象）为null，意味着它被回收了，就会调用此方法，源码为：
+
+```java
+// 源码：ThreadLocal - 520行
+private void replaceStaleEntry(ThreadLocal<?> key, Object value, int staleSlot) {
+  // 参数staleSlot是指, 在set()方法中找到ThreadLocal被回收的Entry所在的下标i
+  Entry[] tab = table;
+  int len = tab.length;
+  Entry e;
+	// 将staleSlot赋值给slotToExpunge
+  int slotToExpunge = staleSlot;
+  // 从staleSlot-1位置开始，遍历每一个不为null的Entry对象，然后判断它们的Key，也就是ThreadLocal对象是否被回收了？这是为了将
+  // 在staleSlot之前的ThreadLocal被回收的Entry(注意此时是key被回收, value还在, Entry也还占用着Entry[]的位置)也一起回收.
+  // 所以这个循环就是为了找到最靠前的下标i, 将它赋值给slotToExpunge.
+  for (int i = prevIndex(staleSlot, len); (e = tab[i]) != null; i = prevIndex(i, len)){
+    	// 如果正好这个Entry的key也被回收了, 记录当前的下标i到slotToExpunge
+      if (e.get() == null){
+        slotToExpunge = i;
+      }  
+  }
+	// 上一个循环是找到为null的Entry对象终止，然后进入这个循环;它跟上一个循环相反，从staleSlot+1位置开始，遍历每一个不为null的
+  // Entry对象（上一个循环是从staleSlot前面位置开始找，这个循环是从从staleSlot后面位置开始找...神奇吧！！！）
+  for (int i = nextIndex(staleSlot, len); (e = tab[i]) != null; i = nextIndex(i, len)) {
+      ThreadLocal<?> k = e.get();
+    	// 这个staleSlot本来就是在set()中通过开放地址法找到的满足threadLocalHashCode的索引位置i，并且它对应的Entry的key(即
+    	// ThreadLocal)被回收. 如果这边还能找到相同ThreadLocal的Entry，那么只有一个原因，就是现在调用set()方法要设置的
+    	// ThreadLocal，本来计算得到它应该放入的Entry[]数组下标假设为5，不巧的是，下标为5的这个位置上已经有元素了（即hash冲突了）
+    	// 所以它就往后寻找位置，来到下标为7的位置。在这个ThreadLocal更新值的时候，还会调用set()方法，此时下标为6的Entry元素的
+    	// key被回收了，就会进入到下面这个逻辑，这边要做的就是：替换旧的值并且和下标为6的Entry对象互换位置
+      if (k == key) {
+        	// 覆盖它的值，然后和前面某一个ThreadLocal会回收的Entry对象互换位置.这边一定要交换，不然对于通过开放地址法解决hash
+        	// hash冲突的ThreadLocalMap，可能会出现两个key一样的Entry对象，原因就是开放地址法是递加1判断Entry[]的坑是否为
+        	// null的，如果不将它与已过期的Entry互换，当这个过期Entry会回收，这个位置就会变为null，下一次调用set()方法时，一旦
+        	// 走到这个位置，发现为null，就直接创建一个Entry塞进去了，但后面还有一个一模一样ThreadLocal的Entry对象，最终导致
+        	// Entry[]数组中存在两个key一个的Entry...真的是牛逼了~
+          e.value = value;
+          tab[i] = tab[staleSlot];
+          tab[staleSlot] = e;
+					
+        	// 这边能相等, 说明第一个for循环并没有找到一个key被回收的Entry对象, 所以它的值就一直等于staleSlot(佩服啊！想得真全
+        	// 面)，这时候就要把原先下标为staleSlot的Entry对象给回收掉, 但是上面代码已经将它们互换位置了，所以此时应该被回收的
+        	// Entry对象下标为i，将i赋值给slotToExpunge
+          if (slotToExpunge == staleSlot){
+              slotToExpunge = i;
+          }
+        	// 然后调用cleanSomeSlots()清理资源，接着方法就返回
+          cleanSomeSlots(expungeStaleEntry(slotToExpunge), len);
+          return;
+      }
+    	// 如果当前Entry的ThreadLocal也为null(也被回收了), 同时slotToExpunge==staleSlot（说明在第一个for循环中并未找到下标
+    	// 在staleSlot之前的并且已经过期的Entry对象），这种情况就把下标在staleSlot后面找到的过期Entry对象的下标i赋值给
+    	// slotToExpunge
+      if (k == null && slotToExpunge == staleSlot)
+        slotToExpunge = i;
+  }
+	// 上面的循环终止条件也是找到一个不为null的Entry对象，能到这里，说明原先的Entry[]数组就没有当前的ThreadLocal存放进去，所以
+  // 就创建一个新的Entry对象放置到下标为staleSlot的位置上
+  tab[staleSlot].value = null;
+  tab[staleSlot] = new Entry(key, value);
+  // 如果slotToExpunge不等于staleSlot，说明就有过期对象需要处理，还是调用cleanSomeSlots()清理资源
+  if (slotToExpunge != staleSlot)
+    cleanSomeSlots(expungeStaleEntry(slotToExpunge), len);
+}
+```
+
+#### 5.4.2.2.expungeStaleEntry()
+
+上面的replaceStaleEntry()方法发现有过期的Entry（就是它的key-ThreadLocal被回收的），先会通过expungeStaleEntry()方法获取下标，然后再调用cleanSomeSlots()清理资源。expungeStaleEntry()方法的源码如下：
+
+```java
+// 源码：ThreadLocal - 589行
+private int expungeStaleEntry(int staleSlot) {
+  	// 此时的方法参数, 就是已找到的ThreadLocal已经被回收的Entry对象，它在Entry[]数组的下标
+    Entry[] tab = table;
+    int len = tab.length;
+
+    // 将这个位置上的Entry都置为null，便于GC回收, 然后将size递减1
+    tab[staleSlot].value = null;
+    tab[staleSlot] = null;
+    size--;
+
+    // Rehash until we encounter null
+    Entry e;
+    int i;
+  	// 从staleSlot往后找, 直至找到一个Entry[i]为null的对象.这里循环的目的是这样：可能即将删除的元素，是由于hash冲突而被迫往后
+  	// 排列的，所以可能它前面的位置被回收了，那么需要将它们向前并。其实就是跟replaceStaleEntry 交换位置的原理是一样的，为了防止由
+  	// 于回收掉中间那个冲突的值，导致后面冲突的值没办法找到（因为e==null 就跳出循环了）
+    for (i = nextIndex(staleSlot, len); (e = tab[i]) != null; i = nextIndex(i, len)) {
+      ThreadLocal<?> k = e.get();
+      if (k == null) {
+          // 同样, 如果发现一个为key也为null(其ThreadLocal被回收), 则将它的Entry都置为null, 在gc时回收掉, size再--
+          e.value = null;
+          tab[i] = null;
+          size--;
+      } else {
+        	// 如果Entry的ThreadLocal不为空, 通过它的threadLocalHashCode定位到它最开始存放在Entry[]的位置(即没有发生hash冲
+        	// 突之前)
+          int h = k.threadLocalHashCode & (len - 1);
+          if (h != i) {
+            // 如果h和i不一样, 那么说明之前该ThreadLocal在放入Entry[]数组的时候必定发生了hash冲突, 所以它实际处的位置不等于
+            // 计算得到的理论位置. 那么就将它实际处的位置置为null（因为要准备将它向前面迁移了）
+            tab[i] = null;
+            // 从理论位置开始往后找, 找到一个为null的位置, 将它放进去.
+            while (tab[h] != null)
+              h = nextIndex(h, len);
+            tab[h] = e;
+          }
+      }
+    }
+    return i;
+}
+```
+
+这个方法不太好理解，这边参考[这篇博客](https://juejin.im/post/5d8b2bde51882509372faa7c#heading-15)给的图介绍一下：
+
+①假设在expungeStaleEntry()执行前，Entry[]元素分布情况如下，经过replaceStaleEntry()处理过，已经找到下标i=3的Entry，其key为null：
+
+![](./images/ThreadLocal_Entry数组合并_1.png)
+
+②接着调用接着调用expungeStaleEntry()，它会清理掉i=3的元素，然后从这个位置向后遍历，一直处理key为null的元素，这里就会处理到6，然后把对应下标都置为null，如下：
+
+![](./images/ThreadLocal_Entry数组合并_2.png)
+
+③接下来会遍历到i=7，经过`int h = k.threadLocalHashCode & (len - 1)`，得到的理论索引地址在7之前（假设它是hash冲突的），紧接着就需要从7前面的位置开始向后遍历直到遇到为null的Entry，那就是i=6的位置，然后把他们的位置互换掉，最后变成：
+
+![](./images/ThreadLocal_Entry数组合并_3.png)
+
+最后就可以将key=25的这个元素向前移动，为了防止由于回收掉中间那个冲突的值，导致后面冲突的值没办法找到（因为e==null 就跳出循环了）
+
+#### 5.4.2.3.cleanSomeSlots()
+
+执行完expungeStaleEntry()方法获取到遍历到的下标i，它是staleSlot往后找到不为null的元素，也有可能直接staleSlot+1的位置。接着就会调用cleanSomeSlots()....，源码为：
+
+```java
+// 源码：ThreadLocal - 649行
+private boolean cleanSomeSlots(int i, int n) {
+    boolean removed = false;
+    Entry[] tab = table;
+    int len = tab.length;
+    do {
+      i = nextIndex(i, len);
+      Entry e = tab[i];
+      if (e != null && e.get() == null) {
+        n = len;
+        removed = true;
+        i = expungeStaleEntry(i);
+      }
+    } while ( (n >>>= 1) != 0);
+    return removed;
+}
+```
+
+#### 5.4.2.4.rehash()
+
+```java
+private void rehash() {
+    expungeStaleEntries();
+
+    // Use lower threshold for doubling to avoid hysteresis
+    if (size >= threshold - threshold / 4)
+      resize();
+}
+```
+
+#### 5.4.2.5.resize()
+
+```java
+private void resize() {
+    Entry[] oldTab = table;
+    int oldLen = oldTab.length;
+    int newLen = oldLen * 2;
+    Entry[] newTab = new Entry[newLen];
+    int count = 0;
+
+    for (int j = 0; j < oldLen; ++j) {
+      Entry e = oldTab[j];
+      if (e != null) {
+        ThreadLocal<?> k = e.get();
+        if (k == null) {
+          e.value = null; // Help the GC
+        } else {
+          int h = k.threadLocalHashCode & (newLen - 1);
+          while (newTab[h] != null)
+            h = nextIndex(h, newLen);
+          newTab[h] = e;
+          count++;
+        }
+      }
+    }
+
+    setThreshold(newLen);
+    size = count;
+    table = newTab;
+}
+```
+
+### 5.4.3.get()
+
+我们都是使用ThreadLocal的get()方法获取设置的值，源码为：
+
+```java
+// 源码：ThreadLocal - 159行
+public T get() {
+    // 获取当前线程的ThreadLocalMap
+    Thread t = Thread.currentThread();
+    ThreadLocalMap map = getMap(t);
+    if (map != null) {
+      // 通过ThreadLocalMap获取对应的Entry, key即为当期的ThreadLocal对象
+      ThreadLocalMap.Entry e = map.getEntry(this);
+      // 如果Entry不为空, 那就返回保存的值
+      if (e != null) {
+        @SuppressWarnings("unchecked")
+        T result = (T)e.value;
+        return result;
+      }
+    }
+    // 若ThreadLocalMap为null或者获取到的Entry为null, 那就创建它, 然后设置一个null值
+    return setInitialValue();
+}
+```
+
+#### 5.4.3.1.getEntry()
+
+实际调用getEntry()方法获取一个ThreadLocalMap.Entry对象，源码为：
+
+```java
+// 源码：ThreadLocal - 413行
+private Entry getEntry(ThreadLocal<?> key) {
+  // 通过ThreadLocal对象获取到数组下标
+  int i = key.threadLocalHashCode & (table.length - 1);
+  // 然后判断这个下标对应的Entry，是不是不为null，并且它的key就是当前的ThreadLocal对象，是的话直接返回
+  Entry e = table[i];
+  if (e != null && e.get() == key)
+    return e;
+  else
+    // 如果获取到的Entry为null, 或是它的key不为当前的ThreadLocal，那就调用getEntryAfterMiss()
+    return getEntryAfterMiss(key, i, e);
+}
+```
+
+#### 5.4.3.2.getEntryAfterMiss()
+
+```java
+// 源码：ThreadLocal - 431行
+private Entry getEntryAfterMiss(ThreadLocal<?> key, int i, Entry e) {
+  Entry[] tab = table;
+  int len = tab.length;
+	// 方法参数e, 就是上一步getEntry()方法获取到的Entry，如果它不为空，说明使用不同的ThreadLocal，但是却
+  // 获取到不属于它的Entry对象, 那么进入循环。如果Entry为null的话, 这边就直接返回null了
+  while (e != null) {
+    // 这里又判断一次？
+    ThreadLocal<?> k = e.get();
+    if (k == key)
+      return e;
+    if (k == null)
+      expungeStaleEntry(i);
+    else
+      i = nextIndex(i, len);
+    e = tab[i];
+  }
+  return null;
+}
 ```
 
 # 6.传统线程通信

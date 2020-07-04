@@ -171,6 +171,46 @@ producer的其它属性设置，官方文档内容：[https://kafka.apache.org/d
 
 ## 4.1.消费者和消费组
 
+kafka消费者可以加入一个消费组，一个消费组可以监听多个topic。kafka会保证一个消费组内的消费者会各自承担一个topic的分区消费（不会出现一个partition由同一个消费组内的两个消费者同时消费.）
+
+- 消费组管理
+
+  ```shell
+  ./kafka-consumer-groups.sh --bootstrap-server localhost:9092 --list
+  ```
+
+- 查看消费组详情
+
+  ```shell
+  ./kafka-consumer-groups.sh --bootstrap-server localhost:9092 --describe --group <group_id>
+  ```
+
+- 查看消费组当前的状态
+
+  ```shell
+  ./kafka-consumer-groups.sh --bootstrap-server localhost:9092 --describe --group <group_id> --state
+  ```
+
+- 消费组内成员信息
+
+  ```shell
+  ./kafka-consumer-groups.sh --bootstrap-server localhost:9092 --describe --group <group_id> --members
+  ```
+
+- 删除消费组，如果有消费者在使用则会失败
+
+  ```shell
+  ./kafka-consumer-groups.sh --bootstrap-server localhost:9092 --delete --group <group_id>
+  ```
+
+- 重置消费组的消费位移，前提是没有消费者在消费
+
+  ```shell
+  ./kafka-consumer-groups.sh --bootstrap-server localhost:9092 --group <group_id> --all-topics --reset-offsets --to-earliest --execute
+  ```
+
+  参数：--all-topics指定了所有主题，可以修改为--topics，指定单个主题
+
 ## 4.2.消息接收
 
 ### 4.2.1.位移提交
@@ -411,3 +451,77 @@ kafka零拷贝技术只用将磁盘文件的数据复制到页面缓存一次，
 producer使用幂等性的示例非常简单，只需要把producer的配置`enable.udempotence`设置为true即可
 
 ## 8.2.事务
+
+幂等性并不能跨多个分区运作，而事务可以弥补这个缺憾，事务可以保证对多个分区写入操作的原子性。操作的原子性是指多个操作要么全部成功，要么全部失败。为了实现事务，应用程序必须提供唯一的`transactionalId`，而且要求生产者开启幂等性特性，所以必须设定：
+
+```java
+// 开启幂等性 + 指定事务ID
+properties.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, true);
+properties.put(ProducerConfig.TRANSACTIONAL_ID_CONFIG, "11232321");
+```
+
+```java
+// 初始化事务
+producer.initTransactions();
+// 开启事务
+producer.beginTransaction();
+try {
+    // doSomething
+    producer.send(null);
+    // 提交事务
+    producer.commitTransaction();
+} catch (Exception e) {
+    // 回滚事务
+    producer.abortTransaction();
+}
+```
+
+## 8.3.控制器
+
+在kafka集群中会有一个或者多个broker，其中有一个broker会被选举为控制器（kafka Controller），它负责管理整个集群中所有分区和副本的状态。当某个分区的leader副本出现故障时，由控制器负责为该分区选举新的leader副本。当检测到某个分区的ISR集合发送变化时，由控制器负责通知所有broker更新其元数据信息。当使用kafka-topics.sh脚本为某个topic增加分区数量时，同样还是由控制器负责分区的重新分配
+
+kafka中的控制器选举的工作依赖于zookeeper，成功竞选为控制器的broker会在zookeeper中创建/controller这个临时节点。zookeeper还有一个与控制器相关的/controller_epoch节点，这个节点是持久节点，节点中存放的是一个整型的controller_epoch值。controller_epoch用于记录控制器发生变更的次数，即记录当前的控制器是第几代控制器，也可以称为“控制器的纪元”
+
+## 8.4.一致性保证
+
+### 8.4.1.HW截断机制
+
+在leader宕机后，控制器从ISR列表中选取新的leader，新的leader并不能保证已经完全同步了之前leader的所有数据，只能保证HW之前的数据是同步过的，此时所有的follower都要讲数据截断到HW的位置，再和新的leader同步数据，来保证数据一致。当宕机的leader恢复，发现新的leader种的数据和自己持有的数据不一样，此时宕机的leader会将自己的数据截断到宕机之前的HW位置，然后同步新leader的数据。
+
+### 8.4.2.数据丢失场景
+
+场景1：
+
+![](./images/kafka水位-数据丢失-情况1.png)
+
+上图中有两个副本：A和B，其中A是leader。假设producer端`min.insync.replicas=1`，当producer发送两条消息给A后，A写入到底层log，此时Kafka会通知producer说这两条消息写入成功。
+
+但是在broker端，leader和follower底层的log虽都写入了2条消息且leader HW已经被更新到1，但follower HW尚未被更新（也就是上面紫色颜色标记的第二步尚未执行）。倘若此时副本B所在的broker宕机，那么重启回来后B会自动把LEO调整到之前的HW值，故副本B会做日志截断(log truncation)，将offset = 1的那条消息从log中删除，并调整LEO = 1，此时follower副本底层log中就只有一条消息，即offset = 0的消息。
+
+B重启之后需要给A发FETCH请求，但若A所在broker机器在此时宕机，那么Kafka会令B成为新的leader，而当A重启回来后也会执行日志截断，将HW调整回0。这样，位移=1的消息就从两个副本的log中被删除，即永远地丢失了
+
+场景2：
+
+![](./images/kafka水位-数据丢失-情况2.png)
+
+A依然是leader，A的log写入了2条消息，但B的log只写入了1条消息。分区HW更新到1，但B的HW还是0，同时producer端的`min.insync.replicas = 1`
+
+如果A和B所在机器同时挂掉，然后假设B先重启回来，因此成为leader，分区HW = 0。假设此时producer发送了第3条消息(绿色框表示)给B，于是B的log中offset = 1的消息变成了绿色框表示的消息，同时分区HW更新到1。之后A重启回来，需要执行日志截断，但发现此时分区HW=1而A之前的HW值也是1，故不做任何调整。此后A和B将以这种状态继续正常工作
+
+### 8.4.3.leader epoch
+
+上面两种场景的根本原因在于HW值被用于衡量副本备份的成功与否以及出现failure时作为日志截断的一句，但是HW值的更新是异步的，尤其是需要FETCH请求处理流程才能更新，故期间如果发生崩溃都可能导致HW值过期。所以，kafka 0.11引入了leader epoch来取代HW值，所谓leader epoch就是基上一对值— `(epoch,offset)`，`epoch`表示leader的版本号，从0开始，当leader变更过1次后`epoch`就会+1，而`offset`对应于该`epoch`版本的leader写入第一条消息的位移。例如：
+
+(0, 0)
+
+(1, 120)
+
+表示第一个leader从位移0开始写入消息，共写了120条[0,119]；而第二个leader版本号是1，从位移120处开始写入消息。broker会保存这样一个缓存，并定期写入一个checkpoint文件中，避免文件丢失
+
+针对场景1：
+
+![](./images/kafka水位-数据丢失-情况1-解决.png)
+
+针对场景2：
+
+![](./images/kafka水位-数据丢失-情况2-解决.png)

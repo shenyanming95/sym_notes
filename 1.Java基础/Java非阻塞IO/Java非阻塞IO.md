@@ -64,6 +64,137 @@ unix有五种网络IO编程模型，分别是:**阻塞IO、非阻塞IO、IO复�
 
 应用程序通过 aio_read 告知内核发起IO请求，然后立即返回；然后内核自行准备数据，并把数据从内核空间拷贝到用户空间，最后内核**自动**通知应用程序。整个IO操作已经完成。[信号驱动 IO](#1.2.4.信号驱动IO) 是内核通知程序何时可以启动一个 IO 操作，而异步 IO 模型是由内核通知程序 IO 操作何时完成。前面四种IO模型都带有阻塞部分：有的阻塞在等待数据准备期间，有的阻塞在从内核空间拷贝数据到用户空间，而异步非阻塞IO是真正实现了两个阶段都是异步的场景
 
+## 1.3.select/poll/epoll
+
+虽然在5种网络I/O模型中，异步非阻塞I/O性能最优，但其实很少有 Linux 系统支持，反而是 Windows 系统提供了一个叫 IOCP 线程模型属于这一种。所以呢，大部分Linux系统其实都是属于`I/0多路复用`，select、poll、epoll都是I/O多路复用的机制。I/O多路复用就是通过一种机制，一个进程可以监视多个文件描述符，一旦某个描述符就绪（读就绪或写就绪），能够通知程序进行相应的读写操作 。
+
+### 1.3.1.cpu中断
+
+一般而言，由硬件产生的信号需要 CPU 立马做出回应，不然数据可能就丢失了，所以它的优先级很高。CPU 理应中断掉正在执行的程序，去做出响应；当 CPU 完成对硬件的响应后，再重新执行用户程序。就以键盘为例，当用户按下键盘某个按键时，键盘会给 CPU 的`中断引脚`发出一个高电平，CPU能够捕获这个信号，然后执行键盘中断程序。
+
+所以，在网络传输中，CPU怎么知道有数据到来，就是：网卡收到网线传过来的二进制数据后，它会把数据写入到内存中，然后网卡向 CPU 发出一个中断信号，操作系统便能得知有新数据到来，再通过网卡中断程序去处理数据
+
+### 1.3.2.socket等待队列
+
+现代操作为了实现多任务处理，会实现进程调度的功能，会把进程分为多种状态，其中只有`运行`状态的进程才会获取到CPU使用权。而操作系统会将多个进程放到它的工作队列中，操作系统会分时执行各个运行状态的进程，由于速度很快，看上去就像是同时执行多个任务。例如，下图的计算机中运行着 A、B 与 C 三个进程，其中进程 A 执行着上述基础网络程序，一开始，这 3 个进程都被操作系统的工作队列所引用，处于运行状态，会分时执行
+
+![](./images/操作系统工作队列.png)
+
+当进程 A 执行到创建 socket 的代码时，操作系统会创建一个由文件系统管理的 socket 对象。这个 socket 对象包含了`发送缓冲区`、`接收缓冲区`与`等待队列`等成员。等待队列是个非常重要的结构，它指向所有需要等待该 socket 事件的进程。**当程序执行到 recv 时，操作系统会将进程 A 的引用添加到该 socket 的等待队列中**（如下图），同时将进程A置为`阻塞`状态。此时由于工作队列只剩下了进程 B 和 C，依据进程调度，CPU 会轮流执行这两个进程的程序，不会执行进程 A 的程序，就会不会往下执行代码，也不会占用 CPU 资源。
+
+![](./images/操作系统socket等待队列.png)
+
+进程A阻塞在Socket的recv()期间，计算机收到了对端的数据流，数据会经由网卡传送到内存中，然后网卡通过中断信号通知 CPU 有数据到达，CPU 执行中断程序。此处的中断程序主要有两项功能，
+
+- 将网络数据写入到对应 socket 的接收缓冲区里面
+- 从socket等待列表中唤醒进程
+
+每个socket都占用操作系统唯一的端口号，网络数据包肯定会指定IP地址和端口号，内核通过端口号找到对应的 socket，然后将该 socket 队列上的进程变成运行状态，继续执行代码。同时由于 socket 的接收缓冲区已经有了数据，recv 可以返回接收到的数据。
+
+### 1.3.3.socket监听
+
+操作系统内核会在一个socket有数据到来时，唤醒在其等待列表中的进程，那么问题来了，内核是怎么同时监控多个socket的数据？这其实就是select、poll、epoll要完成的事。
+
+#### 1.3.3.1.select机制
+
+先看下在linux系统`/usr/include/sys/select.h`文件中对`select`方法的定义：
+
+```c
+## 定义结构体 fd_set
+typedef struct
+{ 
+    __fd_mask fds_bits[__FD_SETSIZE / __NFDBITS];
+    __fd_mask __fds_bits[__FD_SETSIZE / __NFDBITS];
+} fd_set;
+## select函数
+extern int select (int __nfds, 
+                   fd_set *__restrict __readfds,
+                   fd_set *__restrict __writefds,
+                   fd_set *__restrict __exceptfds,
+                   struct timeval *__restrict __timeout);
+```
+
+- **int __nfds**是`fd_set`中最大的描述符+1，当调用select时，内核态会判断fd_set中描述符是否就绪，__nfds告诉内核最多判断到哪一个描述符；
+
+- **__readfds、__writefds、__exceptfds**都是结构体`fd_set`，fd_set可以看作是一个描述符的集合。 select函数中存在三个fd_set集合，分别代表三种事件，`readfds`表示读描述符集合，`writefds`表示读描述符集合，`exceptfds`表示异常描述符集合。当对应的fd_set = NULL时，表示不监听该类描述符；
+- **timeval __timeout**用来指定select的工作方式，即当文件描述符尚未就绪时，select是永远等下去，还是等待一定的时间，或者是直接返回；
+- **返回值int**表示： 就绪描述符的数量，如果为-1表示产生错误 。
+
+select 的实现思路很直接，假设进程A调用了select()同时监视sock1、sock2 和 sock3 三个 socket，那么在调用 select()函数 之后，操作系统把进程 A 分别加入这三个 socket 的等待队列中，同时将进程A阻塞。当任何一个 socket 收到数据后，中断程序将唤起进程A。
+
+当进程 A 被唤醒后，select()函数会将全量`fd_set`从用户空间拷贝到内核空间，并注册回调函数， 在内核态空间来判断每个请求是否准备好数据 。如果有一个或者多个描述符就绪，那么select将就绪的文件描述符放置到指定位置，然后select返回。返回后，由程序遍历查看哪个请求有数据。
+
+**select缺陷：**
+
+- 每次调用select，都需要把fd集合从用户态拷贝到内核态，fd越多开销则越大；
+- 每次调用select都需要在内核遍历传递进来的所有fd，这个开销在fd很多时也很大。因此，规定 select 的最大监视数量，默认只能监视 1024 个 socket。
+
+#### 1.3.3.2.poll机制
+
+先看下linux系统中`/usr/include/sys/poll.h`文件中对`poll`方法的定义:
+
+```c
+## pollfd结构体
+struct pollfd
+{
+    int fd;                     /* File descriptor to poll.  */
+    short int events;           /* Types of events poller cares about.  */
+    short int revents;          /* Types of events that actually occurred.  */
+};
+
+## poll函数
+extern int poll (struct pollfd *__fds, nfds_t __nfds, int __timeout);
+```
+
+- **_fds**参数时Poll机制中定义的结构体`pollfd`，用来指定一个需要监听的描述符。结构体中fd为需要监听的文件描述符，events为需要监听的事件类型，而revents为经过poll调用之后返回的事件类型，在调用poll的时候，一般会传入一个pollfd的结构体数组，数组的元素个数表示监控的描述符个数。
+- **__nfds**和**__timeout**参数都和select机制中的同名参数含义类似
+
+poll的实现和select非常相似，只是描述fd集合的方式不同，poll使用`pollfd`结构代替select的`fd_set`结构，其他的本质上都差不多。所以**Poll机制突破了Select机制中的文件描述符数量最大为1024的限制**。但是poll也会有select的缺陷，一模一样的
+
+#### 1.3.3.3.epoll机制
+
+先看下linux系统中`/usr/include/sys/epoll.h`对epoll机制定义的方法：
+
+```c
+## 创建一个epoll实例并返回，该实例可以用于监控__size个文件描述符
+extern int epoll_create (int __size) __THROW;
+
+## 向epoll中注册事件，该函数如果调用成功返回0，否则返回-1。其中各个参数含义为：
+## __epfd为epoll_create返回的epoll实例
+## __op表示要进行的操作
+## __fd为要进行监控的文件描述符
+## __event要监控的事件
+extern int epoll_ctl (int __epfd, int __op, int __fd,
+                      struct epoll_event *__event) __THROW;
+
+## 类似与select机制中的select函数、poll机制中的poll函数，等待内核返回监听描述符的事件产生。该函数## 返回已经就绪的事件的数量，如果为-1表示出错。其中各个参数含义：
+## __epfd为epoll_create返回的epoll实例
+## __events数组为 epoll_wait要返回的已经产生的事件集合
+## __maxevents为希望返回的最大的事件数量（通常为__events的大小）
+## __timeout和select、poll机制中的同名参数含义相同
+extern int epoll_wait (int __epfd, struct epoll_event *__events,
+                       int __maxevents, int __timeout);
+```
+
+当进程A调用 epoll_create 方法时，内核会创建一个 eventpoll 对象（也就是API中 epfd 所代表的对象）。eventpoll 对象也是文件系统中的一员，和 socket 一样，它也会有等待队列。而且它通过`mmap`内存映射的方式共享在用户态和内核态之间，所以可以减少了内核态和用户态fd文件的拷贝。
+
+创建 epoll 对象后，可以用 epoll_ctl()方法 添加或删除所要监听的 socket。如果通过 epoll_ctl 添加 sock1、sock2 和 sock3 的监视，内核会将 eventpoll 添加到这三个 socket 的等待队列中，并设置中断程序（也可以成为回调函数）。当 socket 收到数据后，中断程序会操作 eventpoll 对象，而不会再直接操作进程。
+
+socket 收到数据后，中断程序（回调函数）会给 eventpoll 的`就绪列表`rdlist 添加 socket 引用，当程序执行到 epoll_wait 时，如果 rdlist 已经引用了 socket，那么 epoll_wait 直接返回，如果 rdlist 为空，否则继续阻塞进程
+
+**总而言之：**
+
+- epoll 在 select 和 poll 的基础上引入了 eventpoll （即调用epoll_create()函数的返回值）作为中间层，eventpoll 对象相当于 socket 和进程之间的中介，socket 的数据接收并不直接影响进程，而是通过改变 eventpoll 的就绪链表rdlist 来改变进程状态。
+
+**工作模式**：
+
+Epoll内部还分为两种工作模式： **LT水平触发（level trigger）**和**ET边缘触发（edge trigger）**
+
+- **LT模式：** 默认的工作模式，即当epoll_wait检测到某描述符事件就绪并通知应用程序时，应用程序**可以不立即处理**该事件；事件会被放回到就绪链表中，下次调用epoll_wait时，会再次通知此事件。
+- **ET模式：** 当epoll_wait检测到某描述符事件就绪并通知应用程序时，应用程序**必须立即处理**该事件。如果不处理，下次调用epoll_wait时，不会再次响应并通知此事件。
+
+epoll工作在ET模式的时候，必须使用非阻塞套接口，以避免由于一个fd的阻塞I/O操作把多个处理其他文件描述符的任务饿死。ET模式在很大程度上减少了epoll事件被重复触发的次数，因此效率要比LT模式高。
+
 # 2.计算机网络协议
 
 ## 2.1.TCP协议
@@ -752,6 +883,8 @@ SelectionKey selectionKey = sink.register(selector,
 选择器（Selector）基于select/poll/epoll模型（操作系统函数），它是基于[多路I/O复用](#1.2.3.IO多路复用)的实现，能够检测一到多个NIO通道，并能够知晓通道是否为监听事件(例如读、写、连接、接收)做好准备的组件。这样，一个单独的线程可以管理多个channel，从而管理多个网络连接，示意图如下：
 
 ![](./images/nio选择器示意图.png)
+
+selector 在 Linux 上的实现机制是 epoll，而在 Windows 平台上的实现机制是 select
 
 ### 8.3.1.SelectionKey集合
 

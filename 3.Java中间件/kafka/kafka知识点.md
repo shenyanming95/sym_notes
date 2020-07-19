@@ -1,5 +1,7 @@
 # 1.kafka介绍
 
+Kafka 是消息引擎系统，也是分布式流处理平台。
+
 ![](./images/kafka架构.png)
 
 ## 1.1.基本概念
@@ -9,8 +11,8 @@
 - **Topic**：在kafka中使用一个类别属性来划分数据的所属类，划分数据的这个类称为topic。如果把kafka看做一个数据库，topic可以理解为数据库中的一张表，topic面子即为表名
 - **Partition**：topic中的数据分割为一个或多个partition（分区）。每个topic至少有一个partition，每个partition中的数据使用多个segment文件存储。partition中的数据是有序的，partition间的数据丢失了数据的顺序。如果topic有多个partition，消费数据时候就不能保证数据的顺序。在需要严格保证消息的消费顺序的场景下，需要将partition数据设置为1；
 - **Partition offset**：每条消息都有一个当前Partition下唯一的64字节的offset，它指明了这条消息的起始位置
-- **Replicas of partition**：副本是一个分区的备份。副本不会被消费者消费，副本只用于防止数据丢失，即消费者不从为follower的partition中消费数据，而是从leader的partition中读取数据。副本之间是一主多从的关系
-- **Broker**：kafka集群包含一个或多个服务器，服务器节点成为broker。broker存储topic的数据，如果某topic有N个partition，集群有N个broker，那么每个broker储存该topic的一个partition。如果某topic有N个partition，集群有（N+M）个broker，那么其中有N个broker储存该topic的一个partition，剩下的M歌broker不存储该topic的partition数据。如果某topic有N个partition，集群中broker数目少于N个，那么一个broker存储该topic的一个或多个partition。在实际生产环境中，尽量避免这种情况的发生，这种情况容易导致kafka集群数据不均衡
+- **Replicas of partition**：分区副本，每个分区partition下可以配置若干个副本，其中只能有 1 个领导者副本和 N-1 个追随者副本。追随者副本不会被消费者消费，它只用于防止数据丢失，即消费者不从为follower的partition中消费数据，而是从leader的partition中读取数据。副本之间是一主多从的关系
+- **Broker**：kafka集群包含一个或多个服务器，服务器节点称为broker。broker存储topic的数据，如果某topic有N个partition，集群有N个broker，那么每个broker储存该topic的一个partition。如果某topic有N个partition，集群有（N+M）个broker，那么其中有N个broker储存该topic的一个partition，剩下的M歌broker不存储该topic的partition数据。如果某topic有N个partition，集群中broker数目少于N个，那么一个broker存储该topic的一个或多个partition。在实际生产环境中，尽量避免这种情况的发生，这种情况容易导致kafka集群数据不均衡
 - **Leader**：每个partition有多个副本，其中有且仅有一个作为Leader，Leader是当前负责数据的读写的partition
 - **Follower**：Follower跟随Leader，所有写请求都通过Leader路由，数据变更会黄渤给所有Follower，Follower与Leader保持数据同步。如果Leader失效，则从Follower中选举出一个新的Leader。当前Follower与Leader挂掉、卡主或者同步太慢，leader会把这个Follower从“in sync replicas”（ISR）列表中删除，重新创建一个Follower
 - **Zookeeper**：Zookeeper负责维护和协调broker。当kafka系统中新增了broker或者某个Broker发生故障失效时，由zookeeper通知生产者和消费者。生产者和消费者依据zookeeper的broker状态信息与broker协调数据的发布和订阅任务
@@ -37,183 +39,67 @@
 - **容错性和可靠性**：kafka的设计方式使某个代理的故障能够被集群中的其它代理检测到，由于每个主题都可以在多个代理上复制，所以集群可以在不中断服务的情况下从此类故障中恢复并继续运行
 - **吞吐量**：代理能够以超快的速度有效地储存和检索数据
 
-# 2.安装&配置
-
-kafka官网下载地址：[https://kafka.apache.org/downloads](https://kafka.apache.org/downloads)
-
-zookeeper下载地址：[https://archive.apache.org/dist/zookeeper/](https://archive.apache.org/dist/zookeeper/)
-
-## 2.1.window
-
-**①**首先保证java环境和zookeeper环境能搭建成功，然后先启动zookeer
-
-```bash
-## 进入到zookeeper的安装目录的bin文件夹下执行
-zkServer.cmd
-```
-
-![](./images/启动zookeeper.png)
-
-**②**下载解压kafka的压缩包，修改config目录下的server.properties，详细配置信息在[配置文件](#2.3.配置文件)一栏，这边只需要修改下log.dirs的信息为指定的文件夹地址即可。然后进入kafka的安装目录（kafka专门有提供一个window的bat执行命令目录），执行命令：
-
-```bash
-## 启动kafka的broker
-.\bin\windows\kafka-server-start.bat .\config\server.properties 
-```
-
-![](./images/启动kafka-broker.png)
-
-**③**创建kafka主题topic，进入kafka安装目录/bin/window/，执行命令：
-
-```bash
-## 参数的含义
-## --create, 表示创建主题
-## --zookeeper, 表示zk连接地址
-## --replication-factor, 表示副本个数, 单机启动最大只能为1
-## --partitions, 表示分片个数
-## --topic, 指定主题名称
-kafka-topics.bat --create --zookeeper localhost:2181 --replication-factor 1 --partitions 1 --topic demo 
-```
-
-![](./images/创建kafka-topic.png)
-
-**④**创建kafka生产者producer，进入kafka安装目录/bin/window，执行命令：
-
-```bash
-## 绑定上面的topic
-kafka-console-producer.bat --broker-list localhost:9092 --topic demo 
-```
-
-**⑤**创建kafka消费者consumer，进入kafka安装目录/bin/window，执行命令：
-
-```bash
-## 订阅上面的topic
-kafka-console-consumer.bat --bootstrap-server localhost:9092 --topic demo
-```
-
-## 2.2.linux
-
-.....
-
-## 2.3.配置文件
-
-kafka的启动文件位于config目录下的server.properties，其中有几个重要的配置：
-
-```properties
-# 表示broker的编号, 集群中每个broker的编号必须不一样
-broker.id=0
-
-# broker对外提供的服务入口地址
-listeners=PLAINTEXT://:9092
-
-# 日志存放地址
-log.dirs=/tmp/kafka/log
-
-# zookeeper集群连接地址
-zookeeper.connect=localhost:2181
-```
-
-# 3.生产者Producer
+# 2.生产者Producer
 
 kafka消息的发送方
 
-## 3.1.基本组件
+## 2.1.基本组件
 
-### 3.1.1.序列化器
+- 序列化器
 
 消息要在网络上传输，必须以字节流的形式，即需要被序列化。kafka的序列化器接口：`org.apache.kafka.common.serialization.Serializer`，默认提供了字符串序列化器、整型序列化器和字节数组序列化器等等..
 
-### 3.1.2.分区器
+- 分区器
 
 分区器是用来决定消息要发送到broker的哪个分区上，kafka的分区器接口：`org.apache.kafka.clients.producer.Partitioner`，若用户没指定分区器实现，kafka会使用`org.apache.kafka.clients.producer.internals.DefaultPartitioner`，它是根据传递消息的key来进行分区的分配，即hash(key)%numPartitions，如果key相同的话就会分配到统一分区
 
-### 3.1.3.拦截器
+- 拦截器
 
 拦截器是用来对生产者做定制化的逻辑控制，可以在消息发送之前进行额外的处理。kafka的拦截器接口：`org.apache.kafka.clients.producer.ProducerInterceptor`。一般用于以下场景：
 
-- 按照某个规则过滤掉不符合要求的消息
-- 修改消息的内容
-- 统计类需求
+​	①按照某个规则过滤掉不符合要求的消息
 
-## 3.2.消息发送流程
+​	②修改消息的内容
+
+​	③统计类需求
+
+## 2.2.分区机制
+
+分区partition的作用就是提供负载均衡的能力，实现系统的高伸缩性（Scalability）。这个概念在分布式系统中很常见，只不过叫法可能不同。在 Kafka 中叫分区，在 MongoDB 和 Elasticsearch 中就叫分片 Shard，而在 HBase 中则叫 Region，在 Cassandra 中又被称作 vnode，底层的分区思想是一样。
+
+实际开发中，生产者分区机制，除了支持负载均衡以外，还会有一些业务上的需求，比如规定带有指定值的消息只能发送到规定的partition上。这就需要使用到kafka生产者的分区策略， **所谓分区策略是决定生产者将消息发送到哪个分区的算法。**Kafka 提供了默认的分区策略，同时也支持自定义分区策略，就是实现[基本组件](# 2.1.基本组件)中的分区器接口
+
+- 轮询策略
+
+Round-robin 策略，即顺序分配。比如一个主题下有 3 个分区，那么第一条消息被发送到分区 0，第二条被发送到分区 1，第三条被发送到分区 2，以此类推。当生产第 4 条消息时又会重新开始，即将其分配到分区 0。这是kafka默认的生产者分区策略
+
+![](./images/生产者分区-轮询策略.png)
+
+- 随机策略
+
+Randomness 策略。所谓随机就是随意地将消息放置到任意一个分区上。**如果追求数据的均匀分布，还是使用轮询策略比较好**。事实上，随机策略是老版本生产者使用的分区策略，在新版本中已经改为轮询了。
+
+![](./images/生产者分区-随机策略.png)
+
+- 消息键保序策略
+
+ Key-ordering 策略。Kafka 允许为每条消息定义消息键，简称为Key，开发中可以为Key附上实际业务属性，这样可以保证同一个 Key 的所有消息都进入到相同的分区里面，由于每个分区下的消息处理都是有顺序的，故这个策略被称为按消息键保序策略
+
+![](./images/生产者分区-消息建保序策略.png)
+
+## 2.3.消息发送流程
 
 ![](./images/kafka-producer消息发送流程.png)
 
-## 3.3.其它属性配置
+# 3.消费者Consumer
 
-producer的其它属性设置，官方文档内容：[https://kafka.apache.org/documentation/#producerconfigs](https://kafka.apache.org/documentation/#producerconfigs)
-
-### 3.3.1acks
-
-**acks：**用来指定分区中必须有多少个副本收到这条消息，之后生产者才会认为这条消息写入成功
-
-| 取值    | 作用                                                         |
-| ------- | ------------------------------------------------------------ |
-| acks=0  | 生产者在写入消息之前不会等待任何来自服务器的响应，如果消息发送过程中出现问题了，生产者是无法感知到，意味着消息可能丢失，但换来的是高吞吐量 |
-| acks=1  | 默认值，只要集群的首领节点收到消息，生产者就会收到一个来自服务器的成果响应，如果消息无法达到首领节点（比如首领节点崩溃，新首领还未被选举出来），生字者就会收到一个错误响应，为了避免消息丢失，生产者会重发消息。但是如果写成功通知了，但此时首领节点还没来得及将数据同步到follower节点就宕机了，还是会造成消息丢失 |
-| acks=-1 | 只有当说是有参与复制的节点都收到消息后，生产者才会收到一个来自服务器的成功响应，这种模式是最安全的但吞吐量最低，它保证不止一个服务器收到消息 |
-
-注意：acks的设置是字符串而不是整数。
-
-### 3.3.2.retries
-
-设置生产者在消息发送失败的情况下的重试次数。默认情况下，生产者会在每次重试之间等待100ms，也可以通过`retries.backoff.ms`参数来修改这个时间间隔！
-
-### 3.3.3.batch.size
-
-当有 消息要被发送同一个分区时，生产者会把它们放在同一个批次里。该参数指定了一个批次可以使用的内存大小，**按照字节数计算，而不是消息的个数**。当批次被填满，批次里的所有消息就会被发送出去。不过生产者并不一定都会等到批次被填满才发哦是哪个，半满的批次，甚至只包含一个消息的批次都有可能被发送。所以就算把`batch.size`设置得很大，也不会造成延迟，只会占用更多的内存而已，如果设置的太小，生产者就会以为频繁发送消息而增加一些额外的开销
-
-### 3.3.4.max.request.size
-
-该参数用于控制生产者发送的请求大小，它可以指定能发送的单个消息的最大值，也可以指定单个请求所有消息的总大小。`broker`对可接受的消息最大值也有自己的限制（`message.max.size`），所以两边配置最好匹配，防止生产者发送的消息被broker拒绝
-
-# 4.消费者Consumer
-
-## 4.1.消费者和消费组
+## 3.1.消费者和消费组
 
 kafka消费者可以加入一个消费组，一个消费组可以监听多个topic。kafka会保证一个消费组内的消费者会各自承担一个topic的分区消费（不会出现一个partition由同一个消费组内的两个消费者同时消费.）
 
-- 消费组管理
+## 3.2.消息接收
 
-  ```shell
-  ./kafka-consumer-groups.sh --bootstrap-server localhost:9092 --list
-  ```
-
-- 查看消费组详情
-
-  ```shell
-  ./kafka-consumer-groups.sh --bootstrap-server localhost:9092 --describe --group <group_id>
-  ```
-
-- 查看消费组当前的状态
-
-  ```shell
-  ./kafka-consumer-groups.sh --bootstrap-server localhost:9092 --describe --group <group_id> --state
-  ```
-
-- 消费组内成员信息
-
-  ```shell
-  ./kafka-consumer-groups.sh --bootstrap-server localhost:9092 --describe --group <group_id> --members
-  ```
-
-- 删除消费组，如果有消费者在使用则会失败
-
-  ```shell
-  ./kafka-consumer-groups.sh --bootstrap-server localhost:9092 --delete --group <group_id>
-  ```
-
-- 重置消费组的消费位移，前提是没有消费者在消费
-
-  ```shell
-  ./kafka-consumer-groups.sh --bootstrap-server localhost:9092 --group <group_id> --all-topics --reset-offsets --to-earliest --execute
-  ```
-
-  参数：--all-topics指定了所有主题，可以修改为--topics，指定单个主题
-
-## 4.2.消息接收
-
-### 4.2.1.位移提交
+### 3.2.1.位移提交
 
 对于kafka而言，它的每条消息都有唯一的offset，表示消息在分区中的位置。当消息从broker返回消费者时，broker并不会跟踪消息是否被消费者消费到，而是让消费者自身来管理消费的位移，并向消费者提供更新位移的接口，这种更新位移的方式成为提交(commit)，注意kafka只保证消息在一个分区的顺序性
 
@@ -221,9 +107,9 @@ kafka消费者可以加入一个消费组，一个消费组可以监听多个top
 - 同步提交
 - 异步提交
 
-### 4.2.2.指定位移
+### 3.2.2.指定位移
 
-### 4.2.3.再均衡
+### 3.2.3.再均衡
 
 再均衡，指的是在kafka consumer所订阅的topic发生变化时发生的一种分区partition重分配机制，一般有三种情况：
 
@@ -239,112 +125,29 @@ kafka提供的再平衡策略主要有三种：`Round Robin`，`Range`和`Sticky
   - 将现有的分区尽可能均衡的分配给各个consumer，存在此目的的原因在于`Round Robin`和`Range`分配策略实际上都会导致某几个consumer承载过多的分区，从而导致消费压力不均衡；
   - 如果发生再平衡，那么重新分配之后在前一点的基础上会尽力保证当前未宕机的consumer所消费的分区不会被分配给其他的consumer上；
 
-## 4.3.其它属性配置
+# 4.主题Topic
 
-consumer的其它属性配置，官方文档内容：[https://kafka.apache.org/documentation/#consumerconfigs](https://kafka.apache.org/documentation/#consumerconfigs)
-
-### 4.3.1.fetch.min.bytes
-
-允许消费者指定从broker读取消息时最小的数据量。当消费者从broker读取消息时，若数据量小于这个阈值，broker会等待直到有足够的数据，然后才返回给消费者。对于写入量不高的主题来说，这个参数可以减少broker和消费者的压力，因为减少了网络传输的消耗。而对于有大量消费者的topic来说，则可以明显减轻broker压力
-
-### 4.3.2.fetch.max.wait.ms
-
-指定了消费者读取时最长等待时间，从而避免长时间阻塞，该参数默认为500ms
-
-### 4.3.3.max.partition.fetch.bytes
-
-指定每个分区返回的最多字节数，默认为1M。也就是说，kafkaConsumer.poll()返回记录列表时，每个分区的记录字节数最多为1M。如果一个主题有20个分区，同时有5个消费者，那么每个消费者需要4M的空间来处理消息
-
-### 4.3.4.max.poll.records
-
-控制 poll()调用返回的记录数，这个可以用来控制应用在拉取循环中的处理数据量。
-
-# 5.主题Topic
-
-topic配置，官方文档内容：[https://kafka.apache.org/documentation/#topicconfigs](https://kafka.apache.org/documentation/#topicconfigs)
-
-## 5.1.创建主题
-
-```powershell
-bin/kafka-topic.sh --zookeeper localhost:2181 --create --topic sym_demo --partition 2 --replication-factor 1
-```
-
-- --zookeeper，设置zookeeper所在的地址，为必传参数，多个zookeeper用“,"分开
-- --partition，由于设置主题分区数
-- replication-factor，设置主题副本数，每个副本分布在不同节点，不
-
-## 5.2.查看主题
-
-```powershell
-## 查看所有主题
-bin/kafka-topics.sh --list --zookeeper localhost:2181
-```
-
-```powershell
-## 查看特定主题
-bin/kafka-topics.sh --describe --zookeeper localhost:2181 --topic sym_demo
-```
-
-## 5.3.修改主题
-
-```powershell
-## 修改配置
-bin/kafka-topics.sh --alter --zookeeper localhost:2181 --topic sym_demo --config flush.message=1
-```
-
-- --alter表示修改命令
-- --topic指定主题
-- --config，后面跟着要修改的配置项，以key:value的形式
-
-```powershell
-## 删除配置
-bin/kafka-topics.sh --alter --zookeeper localhost:2181 --topic sym_demo --delete-config flush.message
-```
-
-- --delete-config，表示删除配置
-
-## 5.4.删除主题
-
-删除主题受到kafka配置影响：
-
-- 若delete.topic.enable=true，直接彻底删除该topic
-- 若delete.topic.enable=false，分为两种情况
-  - 如果当前topic没有使用过即没有传输过消息，可以彻底删除；
-  - 如果当前topic使用过即传输过消息，并没有真正删除topic，只是将它标记为删除(marked for deletion)，重启kafka server后删除
-
-```powershell
-bin/kafka-topics.sh --delete --zookeeper localhost:2181 --topic sym_demo
-```
-
-## 5.5.增加分区
-
-kafka只能增加分区，不能减少分区
-
-```powershell
-bin/kafka-topics.sh --alter --zookeeper localhost:2181 --topic sym_demo --partition 3
-```
-
-# 6.分区Partition
+# 5.分区Partition
 
 kafka将主题划分为多个分区（partition），会根据分区规则选择把消息存储到哪个分区中。如果分区规则设置的合理，那么所有的消息将会被均匀地分布到不同的分区中，这样就实现了负载均衡和水平扩展。另外，多个订阅者可以从一个或者多个分区中同时消费数据，以支撑海量数据处理能力。注：由于消息时以追加到分区中，多个分区顺序写磁盘的总效率比随机写内存还要高，是kafka高吞吐量的重要保障之一
 
-## 6.1.副本机制
+## 5.1.副本机制
 
 Kafka 0.8 以后，提供了 HA 机制，就是 replica（复制品） 副本机制。一个主题可以有多个分区，例如下图，红色部分：topic1-part0、topic1-part1、topic1-part2，表示主题topic1分为了3个分区；同时每个分区都有2个副本（绿色部分），这些副本保存在不同的broker上（分区和它的副本最好不要保存在同一个节点上），在一个broker出错时，leader在这台broker上的分区会变得不可用，kafka会自动移除leader，再从其它副本中选一个作为新的leader。
 
 ![](./images/kafka副本机制.png)
 
-## 6.2.分区分配策略
+## 5.2.分区分配策略
 
 kafka默认的消费逻辑设定，一个分区只能被同一个消费组内的一个消费者消费，如果消费者过多，出现了消费者的数量大于分区的数量，那么就会有消费者分配不到任何分区 。kafka提供了消费者客户端参数partition.assignment.strategy用来设置消费者与订阅主题之间的分配策略，默认情况下，此参数的值为`org.apache.kafka.clients.consumer.RangeAssignor`。kafka还提供了另外两种分配策略：`org.apache.kafka.clients.consumer.RoundRobinAssignor`和`org.apache.kafka.clients.consumer.StickyAssignor`。kafka允许这只多个分配策略，彼此之间用逗号分隔
 
-### 6.2.1.RangeAssignor
+### 5.2.1.RangeAssignor
 
 RangeAssignor策略的原理是按照消费者总数和分区总数进行整除运算来获得一个跨度，然后将分区按照跨度进行平均分配。对于每一个topic，RangeAssignor策略会将消费组内所有订阅这个topic的消费者按照名字的字典序排序，然后为每个消费者划分固定的分区范围，如果不够平均分配，那么字典序靠前的消费者会多分配一个分区。
 
 假设n=分区数/消费者数，m=分区数%消费者数，那么前m个消费者每个分配n+1个分区，后面的（消费者数量-m）个消费者每个分配n个分区
 
-### 6.2.2.RoundRobinAssignor
+### 5.2.2.RoundRobinAssignor
 
 RoundRobinAssignor策略的原理是将消费组内所有消费者以及消费者所订阅的所有topic按照partition按照字典序排序，然后通过轮询方式组个将分区依次分配给每个消费者。
 
@@ -365,7 +168,7 @@ RoundRobinAssignor策略的原理是将消费组内所有消费者以及消费�
 
 其实可以吧分区t1p1分配给C1消费，减轻C2的研力
 
-### 6.2.3.StickyAssignor
+### 5.2.3.StickyAssignor
 
 StickyAssignor策略是从kafka 0.11x版本开始引入，它有两个目的：
 
@@ -374,19 +177,19 @@ StickyAssignor策略是从kafka 0.11x版本开始引入，它有两个目的：
 
 如果上面两者发生冲突，第一个目标优先于第二个目标
 
-# 7.存储结构
+# 6.存储结构
 
 每一个partition相当于一个巨型文件，被平均分配到多个大小相等的segment（段）数据文件里。但每一个segment file消息数量不一定相等，这样的特性方便old segment file高速被删除，默认情况下每一个segment file文件大小为1G。partition仅仅只要支持顺序读写即可，segment文件生命周期由服务器配置参数决定。
 
 segment file由两大部分组成：index file和data file，后缀`.index`和`.log`分别表示sgement索引文件、数据文件
 
-## 7.1.日志索引
+## 6.1.日志索引
 
-### 7.1.1.数据文件分段
+### 6.1.1.数据文件分段
 
 比如说有100条message，它们的offset是从0~99，假设将数据分为5段，依次为0-19,20-39,40-59...以此类推，每段放在一个单独的数据文件里面，数据文件以该段中最小的offset命名。这样再查找指定offset的Message时，用二分查找就可以定位到该Message在哪个段中
 
-### 7.1.2.偏移量索引
+### 6.1.2.偏移量索引
 
 在数据文件分段的基础上，kafka为每个分段后的数据文件建立了索引文件，文件名与数据文件的名字是一样的，只是文件扩展名为`.index`。
 
@@ -400,9 +203,9 @@ segment file由两大部分组成：index file和data file，后缀`.index`和`.
 
 这套机制是建立在offset是有序的，索引文件被映射到内存中，所以查找的速度还是很快的。总而言之，kafka的消息存储采用了分区（partition）、分段（LogSegment）和稀疏索引等方式以实现高效性！
 
-## 7.2.日志清理
+## 6.2.日志清理
 
-### 7.2.1.日志删除
+### 6.2.1.日志删除
 
 kafka日志管理器允许订制删除策略，默认策略是删除修改时间N天之前的日志（也就是按时间删除），也可以使用另外一个策略，保留最后的N GB数据的策略（按大小删除）。同时，为了避免在删除的时候阻塞读操作，采用了copy-on-write形式的实现，删除操作进行时，读取操作的二分查找功能实际是在一个静态的快照副本上进行，这类似于java的CopyOnWriteArrayList
 
@@ -415,11 +218,11 @@ log.retention.hours=16
 log.retention.bytes=1073741824
 ```
 
-### 7.2.2.日志压缩
+### 6.2.2.日志压缩
 
 将数据压缩，只保留每个key最后一个版本的数据。首先在broker的配置中设置`log.cleaner.enbale=true`启用cleaner，这个默认是关闭的。在Topic的配置中设置`log.cleanup.policy=compact`启用压缩策略
 
-## 7.2.磁盘存储
+## 6.3.磁盘存储
 
 kafka实现高吞吐量的存储原因：
 
@@ -427,21 +230,21 @@ kafka实现高吞吐量的存储原因：
 - 页缓存
 - 零拷贝
 
-### 7.2.1消息顺序追加
+### 6.3.1消息顺序追加
 
 kafka在设计的时候，采用文件追加的方式来写入消息，即只能在日志文件的尾部追加新的消息，并且不允许修改已经写入的消息，这种方式属于典型的顺序写入操作。
 
-### 7.2.2.页缓存
+### 6.3.2.页缓存
 
 kafka中大量使用页缓存，也是kafka实现高吞吐量的重要因素之一
 
-### 7.2.3.零拷贝
+### 6.3.3.零拷贝
 
 kafka零拷贝技术只用将磁盘文件的数据复制到页面缓存一次，就可以将数据从页面缓存直接发送到网络中（发送给不同的订阅者时，都可以使用同一个页面缓存），避免重复操作。例如：假设有10个消费者，传统方式下，数据复制次数为4*10=40次，而使用零拷贝技术，只要1+10=11次，一次为从磁盘复制到页面缓存，10次表示10个消费者各自读取一次页面缓存。
 
-# 8.稳定性
+# 7.稳定性
 
-## 8.1.幂等性
+## 7.1.幂等性
 
 生产者才发生消息给broker，期间如果发生网络异常，生产者由于没有收到broker的ack响应，会重新发送消息。在生产者进行重试的时候，就有可能会重复写入消息，kafka的幂等性可以避免这种情况，但是kafka的幂等性具有一定的限制性：
 
@@ -450,7 +253,7 @@ kafka零拷贝技术只用将磁盘文件的数据复制到页面缓存一次，
 
 producer使用幂等性的示例非常简单，只需要把producer的配置`enable.udempotence`设置为true即可
 
-## 8.2.事务
+## 7.2.事务
 
 幂等性并不能跨多个分区运作，而事务可以弥补这个缺憾，事务可以保证对多个分区写入操作的原子性。操作的原子性是指多个操作要么全部成功，要么全部失败。为了实现事务，应用程序必须提供唯一的`transactionalId`，而且要求生产者开启幂等性特性，所以必须设定：
 
@@ -476,19 +279,19 @@ try {
 }
 ```
 
-## 8.3.控制器
+## 7.3.控制器
 
 在kafka集群中会有一个或者多个broker，其中有一个broker会被选举为控制器（kafka Controller），它负责管理整个集群中所有分区和副本的状态。当某个分区的leader副本出现故障时，由控制器负责为该分区选举新的leader副本。当检测到某个分区的ISR集合发送变化时，由控制器负责通知所有broker更新其元数据信息。当使用kafka-topics.sh脚本为某个topic增加分区数量时，同样还是由控制器负责分区的重新分配
 
 kafka中的控制器选举的工作依赖于zookeeper，成功竞选为控制器的broker会在zookeeper中创建/controller这个临时节点。zookeeper还有一个与控制器相关的/controller_epoch节点，这个节点是持久节点，节点中存放的是一个整型的controller_epoch值。controller_epoch用于记录控制器发生变更的次数，即记录当前的控制器是第几代控制器，也可以称为“控制器的纪元”
 
-## 8.4.一致性保证
+## 7.4.一致性保证
 
-### 8.4.1.HW截断机制
+### 7.4.1.HW截断机制
 
 在leader宕机后，控制器从ISR列表中选取新的leader，新的leader并不能保证已经完全同步了之前leader的所有数据，只能保证HW之前的数据是同步过的，此时所有的follower都要讲数据截断到HW的位置，再和新的leader同步数据，来保证数据一致。当宕机的leader恢复，发现新的leader种的数据和自己持有的数据不一样，此时宕机的leader会将自己的数据截断到宕机之前的HW位置，然后同步新leader的数据。
 
-### 8.4.2.数据丢失场景
+### 7.4.2.数据丢失场景
 
 场景1：
 
@@ -508,7 +311,7 @@ A依然是leader，A的log写入了2条消息，但B的log只写入了1条消息
 
 如果A和B所在机器同时挂掉，然后假设B先重启回来，因此成为leader，分区HW = 0。假设此时producer发送了第3条消息(绿色框表示)给B，于是B的log中offset = 1的消息变成了绿色框表示的消息，同时分区HW更新到1。之后A重启回来，需要执行日志截断，但发现此时分区HW=1而A之前的HW值也是1，故不做任何调整。此后A和B将以这种状态继续正常工作
 
-### 8.4.3.leader epoch
+### 7.4.3.leader epoch
 
 上面两种场景的根本原因在于HW值被用于衡量副本备份的成功与否以及出现failure时作为日志截断的一句，但是HW值的更新是异步的，尤其是需要FETCH请求处理流程才能更新，故期间如果发生崩溃都可能导致HW值过期。所以，kafka 0.11引入了leader epoch来取代HW值，所谓leader epoch就是基上一对值— `(epoch,offset)`，`epoch`表示leader的版本号，从0开始，当leader变更过1次后`epoch`就会+1，而`offset`对应于该`epoch`版本的leader写入第一条消息的位移。例如：
 

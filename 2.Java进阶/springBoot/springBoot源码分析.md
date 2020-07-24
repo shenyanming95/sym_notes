@@ -801,3 +801,23 @@ private void prepareContext(ConfigurableApplicationContext context,
 ```
 
 ### 2.3.5.刷新上下文
+
+
+
+# *.配置类解析
+
+配置类解析的入口方法：
+
+refresh
+
+↓
+
+invokeBeanFactoryPostProcessors
+
+↓
+
+ConfigurationClassPostProcessor
+
+↓
+
+postProcessBeanDefinitionRegistry

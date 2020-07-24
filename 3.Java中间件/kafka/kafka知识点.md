@@ -91,6 +91,34 @@ Randomness 策略。所谓随机就是随意地将消息放置到任意一个分
 
 ![](./images/kafka-producer消息发送流程.png)
 
+## 2.4.消息不丢失
+
+**Kafka 只对“已提交”的消息（committed message）做有限度的持久化保证**，其中有2个要素：
+
+- 已提交：Kafka 的若干个 Broker 成功地接收到一条消息并写入到日志文件后，它们会告诉生产者程序这条消息已成功提交。此时，这条消息在 Kafka 看来就正式变为“已提交”消息了；
+-  有限度：Kafka 不可能保证在任何情况下都做到不丢失消息，极端情况下还是会丢失消息。
+
+### 2.4.1.消息丢失场景
+
+①生产者使用`producer.send(msg) `发送消息，生产者并没有收到broker的ack响应就认为消息发送了。其实有可能由于网络原因，丢失了；
+
+②消费者开启多个线程消费消息，开启了自动提交，然后由部分线程出错了，但是消息已经被提交了，所以这个报错的消息就丢失了。
+
+③增加主题分区。当增加topic分区后，在某段“不凑巧”的时间间隔后，Producer 先于 Consumer 感知到新增加的分区，而 Consumer 设置的是“从最新位移处”开始读取消息，因此在 Consumer 感知到新分区前，Producer 发送的这些消息就全部“丢失”了，或者说 Consumer 无法读取到这些消息。
+
+### 2.4.2.消息不丢失配置
+
+- 使用 `producer.send(msg, callback)`发送，使用带有回调通知的方法
+- 设置`acks=all`，acks 是 Producer 的一个参数，表示要所有副本 Broker 都接收到消息，该消息才算是“已提交”；
+- 设置 retries 为一个较大的值， retries 同样是 Producer 的参数，保证在网络抖动时候，retries > 0 的 Producer 能够自动重试消息发送，避免消息丢失；
+- 设置 `unclean.leader.election.enable = false`。这是 Broker 端的参数，它控制的是哪些 Broker 有资格竞选分区的 Leader。如果一个 Broker 落后原先的 Leader 太多，那么它一旦成为新的 Leader，必然会造成消息的丢失；
+- 设置 `replication.factor >= 3`。这也是 Broker 端的参数。最好将消息多保存几份，毕竟目前防止消息丢失的主要机制就是冗余;
+- 设置` min.insync.replicas > 1`。这依然是 Broker 端参数，控制的是消息至少要被写入到多少个副本才算是“已提交”。设置成大于 1 可以提升消息持久性。实际环境中千万不要使用默认值 1
+- 确保` replication.factor > min.insync.replicas`。如果两者相等，那么只要有一个副本挂机，整个分区就无法正常工作了。我们不仅要改善消息的持久性，防止数据丢失，还要在不降低可用性的基础上完成。推荐设置成` replication.factor = min.insync.replicas + 1`；
+- 确保消息消费完成再提交。Consumer 端有个参数 enable.auto.commit，最好把它设置成 false，并采用手动提交位移的方式
+
+
+
 # 3.消费者Consumer
 
 ## 3.1.消费者和消费组

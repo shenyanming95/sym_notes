@@ -176,7 +176,48 @@ kafka生产和消费的消息都是通过网络传输，最终将消息落地磁
 
 producer的其它属性设置，官方文档内容：[https://kafka.apache.org/documentation/#producerconfigs](https://kafka.apache.org/documentation/#producerconfigs)
 
-## 3.1.acks
+## 3.1.消息压缩
+
+在 Kafka 中，消息压缩可能发生在两个地方：生产者端和 Broker 端，然后消费者端自己解压消息，总体就是：**Producer 端压缩、Broker 端保持、Consumer 端解压缩**。生产者程序中配置 compression.type 参数即表示启用指定类型的压缩算法：
+
+```java
+Properties props = new Properties();
+props.put("bootstrap.servers", "localhost:9092");
+props.put("acks", "all");
+props.put("key.serializer", "org.apache.kafka.common.serialization.StringSerializer");
+props.put("value.serializer", "org.apache.kafka.common.serialization.StringSerializer");
+// 开启 GZIP 压缩
+props.put("compression.type", "gzip");
+
+Producer<String, String> producer = new KafkaProducer<>(props);
+```
+
+这样 Producer 启动后生产的每个消息集合都是经 GZIP 压缩过的，能很好地节省网络传输带宽以及 Kafka Broker 端的磁盘占用，因为大部分情况下，broker端都是原封不动的把消息保存起来。但是有两种情况，broker端会重新压缩消息：
+
+- Broker 端指定了和 Producer 端不同的压缩算法。broker收到消息后先用producer的压缩算法解压，再按照它自己的压缩算法配置再压缩，最后保存
+- Broker 端发生了消息格式转换，所谓的消息格式转换主要是为了兼容老版本的消费者程序。为了兼容老版本的格式，Broker 端会对新版本消息执行向老版本格式的转换。这个过程中会涉及消息的解压缩和重新压缩。这种情况对broker性能影响很大，因为丧失了zero-copy功能
+
+**压缩算法的选择：**
+
+评价一个压缩算法的优劣，有两个重要的指标：
+
+- 压缩比，原先占 100 份空间的东西经压缩之后变成了占 20 份空间，那么压缩比就是 5，压缩比越高越好；
+- 压缩 / 解压缩吞吐量，比如每秒能压缩或解压缩多少 MB 的数据，吞吐量越高越好
+
+各个压缩算法比较，仅供参考。zstd 算法有着最高的压缩比，LZ4 算法有着最大的吞吐量。
+
+![](./images/kafka压缩算法对比.png)
+
+**什么时候启用压缩：**
+
+根据自身的实际情况有针对性地启用合适的压缩算法
+
+- Producer 程序运行机器上的 CPU 资源要很充足，只有CPU资源很充足，才能资源去进行压缩。如果原本CPU已经消耗殆尽，此时再启动消息压缩，会加重CPU资源的消耗，影响正常的功能。
+- 如果网络环境中带宽资源有限，最好还是开启压缩，可以减少带宽
+
+## *.其它配置
+
+### *.1.acks
 
 **acks：**用来指定分区中必须有多少个副本收到这条消息，之后生产者才会认为这条消息写入成功
 
@@ -188,15 +229,15 @@ producer的其它属性设置，官方文档内容：[https://kafka.apache.org/d
 
 注意：acks的设置是字符串而不是整数。
 
-## 3.2.retries
+### *.2.retries
 
 设置生产者在消息发送失败的情况下的重试次数。默认情况下，生产者会在每次重试之间等待100ms，也可以通过`retries.backoff.ms`参数来修改这个时间间隔！
 
-## 3.3.batch.size
+### *.3.batch.size
 
 当有 消息要被发送同一个分区时，生产者会把它们放在同一个批次里。该参数指定了一个批次可以使用的内存大小，**按照字节数计算，而不是消息的个数**。当批次被填满，批次里的所有消息就会被发送出去。不过生产者并不一定都会等到批次被填满才发哦是哪个，半满的批次，甚至只包含一个消息的批次都有可能被发送。所以就算把`batch.size`设置得很大，也不会造成延迟，只会占用更多的内存而已，如果设置的太小，生产者就会以为频繁发送消息而增加一些额外的开销
 
-## 3.4.max.request.size
+### *.4.max.request.size
 
 该参数用于控制生产者发送的请求大小，它可以指定能发送的单个消息的最大值，也可以指定单个请求所有消息的总大小。`broker`对可接受的消息最大值也有自己的限制（`message.max.size`），所以两边配置最好匹配，防止生产者发送的消息被broker拒绝
 

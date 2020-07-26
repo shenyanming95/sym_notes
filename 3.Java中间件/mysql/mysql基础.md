@@ -733,7 +733,7 @@ SQL并发复制需要保证事务有序进行。Slave必需保证回放的顺序
 
 slave（从机）会从master（主机）读取biglog进行数据同步
 
-<img src="./images/主从复制原理.png" style="zoom:80%;" />
+<img src="./images/mysql主从流程.png" style="zoom:80%;" />
 
 mysql复制过程分为3步：
 
@@ -767,7 +767,7 @@ mysql复制过程分为3步：
 
 #### 6.3.1.1.master
 
-```tex
+```ini
 # 指定服务器唯一id, 范围[1,32], 必须配置
 server_id=1 
 
@@ -789,7 +789,7 @@ read-only=0
 
 #### 6.3.1.2.slave
 
-```tex
+```ini
 从机是放在linux系统下，所以配置文件是my.cnf
 
 # 指定服务器唯一id, 范围[1,32], 必须配置
@@ -813,8 +813,8 @@ read-only=1
 #### 6.3.2.1.master
 
 ```sql
--- 为从库生成用户
-grant replication slave on *.* to 'slave'@'127.0.0.1' identified by 'slave' ;
+-- 为从库生成账户: salve/slave123
+grant replication slave on *.* to 'slave'@'127.0.0.1' identified by 'slave123' ;
 
 -- 刷新权限
 flush privileges;
@@ -863,9 +863,9 @@ master_log_pos=具体值;
 
 ```sql
 change master to master_host='127.0.0.1',master_port=3308,
-master_user='slave',master_password='slave', 
-master_log_file='mysql-log-bin.000002',
-master_log_pos=534;
+master_user='slave',master_password='slave123', 
+master_log_file='mysql-log-bin.000035',
+master_log_pos=341;
 ```
 
 2、启动从机Mysql上的复制功能
@@ -877,7 +877,7 @@ master_log_pos=534;
 3、查询从机状态，
 
 ```sql
-show slave status；
+show slave status;
 ```
 
   如果下面2个参数值都为yes，则说明配置正确：
@@ -894,4 +894,3 @@ slave_sql_running:yes
 ```sql
 stop slave;
 ```
-

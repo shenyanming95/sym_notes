@@ -1,0 +1,273 @@
+# 1.Tomcat简介
+
+## 1.1.知识扫盲
+
+`javax.servlet.Servlet`，是一个标准化接口，可以理解为运行在服务端的java小程序。服务器接收到请求后，确定并寻找合适的Servlet响应请求。为了让服务器与业务逻辑解耦，又定义了`Servlet Container`，即Servlet容器，由容器来创建和管理Servlet。Servlet接口和Servlet容器这一整套规范叫做Servlet规范。
+
+```java
+// Servlet接口定义
+public interface Servlet {
+  // 第一次创建Servlet, 调用init()初始化, 一般用来构建资源, 例如springmvc通过它创建spring容器.
+  public void init(ServletConfig config) throws ServletException;
+  
+  // 获取Servlet的配置类
+  public ServletConfig getServletConfig();
+  
+  // 执行业务逻辑的方法
+  public void service(ServletRequest req, ServletResponse res) throws ServletException, IOException;
+  
+  // 获取Servlet信息
+  public String getServletInfo();
+  
+  // 销毁Servlet调用, 一般用于释放资源
+  public void destroy();
+}
+```
+
+tomcat实现了Servlet规范，它就是一个Servlet容器，同时，tomcat可以接收客户端请求，它还是一个HTTP服务器，所以tomcat也被称为”Web 容器“。其它容器如JBoss和WebLogic，除了是Servlet容器外，还是EJB容器，因此它们是完整的Java EE服务器，而tomcat属于轻量级web容器，在微服务化的应用中被广泛使用，例如：springBoot。
+
+## 1.2.工作流程
+
+tomcat = HTTP服务器 + Servlet容器，HTTP服务器负责接收网络请求，Servlet容器负责管理和调度Servlet实例，所以tomcat工作流程：
+
+HTTP服务器监听网络请求，如果有客户端发起资源请求，它会将请求信息封装成`javax.servlet.ServletRequest`，然后调用Servlet容器的service()方法；Servlet容器根据请求的URL和Servlet映射关系，定位需要处理请求的Servlet；若该Servlet未加载，Servlet容器会创建它并调用init()方法初始化，然后调用Servlet的service()方法处理请求，最后把`javax.servlet.ServletResponse`返回给HTTP服务器；HTTP服务器再把响应返回给客户端。
+
+# 2.Tomcat架构
+
+tomcat支持的`I/O`模型：
+
+- NIO：非阻塞 I/O，采用 Java NIO 类库实现。
+- NIO2：异步 I/O，采用 JDK 7 最新的 NIO2 类库实现。
+- APR：采用 Apache 可移植运行库实现，是 C/C++ 编写的本地库
+
+tomcat支持的应用层协议：
+
+- HTTP/1.1：这是大部分 Web 应用采用的访问协议。
+- AJP：用于和 Web 服务器集成（如 Apache）。
+- HTTP/2：HTTP 2.0 大幅度的提升了 Web 性能。
+
+tomcat需要实现的2个功能：
+
+- 处理Socket连接，负责网络字节流与Request、Response对象的转化；
+- 加载、管理和调度Servlet，以处理Request请求
+
+tomcat设计两个核心组件：
+
+- 连接器，Connector，负责处理连接；
+- 容器，Container，负责内部调度。
+
+一个容器Container可以对接多个连接器Connector，这样可以支持多种协议。但是容器和连接器并不能独立运行，它们必须配合使用，tomcat会把它们组装到一起成为一个`Service`，通过在 Tomcat 中配置多个 Service，可以实现通过不同的端口号来访问同一台机器上部署的不同应用。
+
+<img src="./images/tomcat-service组件.jpeg" style="zoom:67%;" />
+
+最顶层是 Server，这里的 Server 就是一个 Tomcat 实例。一个 Server 中有一个或者多个 Service，一个 Service 中有多个连接器和一个容器。连接器与容器之间通过标准的 ServletRequest 和 ServletResponse 通信。
+
+## 2.1.连接器
+
+连接器的功能细化：
+
+- 监听网络端口。
+- 接受网络连接请求。
+- 读取请求网络字节流。
+- 根据具体应用层协议（HTTP/AJP）解析字节流，生成统一的 Tomcat Request 对象。
+- 将 Tomcat Request 对象转成标准的 ServletRequest。
+- 调用 Servlet 容器，得到 ServletResponse。
+- 将 ServletResponse 转成 Tomcat Response 对象。
+- 将 Tomcat Response 转成网络字节流。
+- 将响应字节流写回给浏览器。
+
+tomcat设计了3个组件来实现连接器的功能，分别是：EndPoint、Processor、Adapter。Endpoint负责提供字节流给Processor，Processor负责提供Tomcat Request对象给Adapter，Adapter负责转换ServletRequest对象给容器。
+
+<img src="./images/tomcat-connector组件.jpeg" style="zoom:50%;" />
+
+为了让`I/O`模型和应用层协议能够自由搭配，tomcat提供ProtocolHandler接口，来将网络通信(EndPoint)和应用层协议解析(Processor)放在一起处理。面向对象编程的精髓就是继承和多态，同样tomcat也会抽出稳定不变的基类AbstractProtocol，然后每一个应用层协议都有自己的抽象基类，例如AbstractAjpProtocol 和 AbstractHttp11Protocol，最后根据`I/O`模型实现抽象基类，继承关系如下：
+
+<img src="./images/ProtocolHandler继承关系.jpeg" style="zoom:50%;" />
+
+### 2.1.1.ProtocolHandler
+
+tomcat提供了ProtocolHandler，合并了EndPoint和Processor两个基础组件，来处理网络连接和应用层协议。
+
+- EndPoint
+
+  网络监听的通信接口，用来实现 TCP/IP 协议，对应tomcat源码的`org.apache.tomcat.util.net.AbstractEndpoint`，是具体的Socket接口和发送处理器。AbstractEndpoint 的具体子类，比如在：NioEndpoint 和 Nio2Endpoint ，有两个重要的子组件：Acceptor 和 SocketProcessor。Acceptor 用于监听 Socket 连接请求。SocketProcessor 用于处理接收到的 Socket 请求，它实现 Runnable 接口，在 Run 方法里调用协议处理组件 Processor 进行处理。为了提高处理能力，SocketProcessor 被提交到线程池来执行。而这个线程池叫作执行器（Executor)
+
+- Processor
+
+  应用层协议解析接口，用来实现HTTP协议，对应tomcat源码的`org.apache.coyote.Processor`。Processor 接收来自 EndPoint 的 Socket，读取字节流解析成 Tomcat Request 和 Response 对象，并通过 Adapter 将其提交到容器处理
+
+<img src="./images/tomcat-ProtocolHandler组件.jpeg" style="zoom:50%;" />
+
+EndPoint的Acceptor接收到Socket连接后，生成一个SocketProcessor任务提交到线程池(Executor)处理，SocketProcessor实现了Runnable接口，它的run()方法会调用Processor组件去解析应用层协议。Processor通过解析生成Request对象，调用Adapter的service()方法。
+
+### 2.1.2.Adapter
+
+tomcat支持多种协议，那么每种协议的请求信息都不一样，Adapter之前的ProtocolHandler组件，仅仅是将不同协议的请求信息解析封装成Tomcat Request对象。之前讲过，连接器Connector与容器Container之间的交互对象是ServletRequest，所以Adapter就是负责将Tomcat Request转换成ServletRequest。tomcat采用适配器模式，提供CoyoteAdapter，连接器调用 CoyoteAdapter 的 Sevice 方法，传入的是 Tomcat Request 对象，CoyoteAdapter 负责将 Tomcat Request 转成 ServletRequest，再调用容器的 Service 方法。
+
+## 2.2.容器
+
+在tomcat里，容器Container就是来装载和调度Servlet的。
+
+### 2.2.1.层次架构
+
+**Tomcat 通过一种分层的架构，使得 Servlet 容器具有很好的灵活性**。它设计了 4 种容器： Engine、Host、Context 和 Wrapper，这 4 种容器不是平行关系，而是父子关系：
+
+<img src="./images/tomcat-Servlet容器层次结构.jpeg" style="zoom:50%;" />
+
+前面说过，一个Tomcat实例可以有多个Service，一个Service由一个容器 + 多个连接器组成。上图就是容器的构造：
+
+- Wrapper，表示一个Servlet
+- Context，表示一个Web应用，即部署在tomcat/webapp下的一个war就是一个Context，它可以包含多个Servlet；
+- Host，表示一个虚拟主机(或者说站点)，一个虚拟主机可以部署多个Web应用，而tomcat可以配置多个虚拟主机；
+- Engine，表示引擎，用来管理多个虚拟主机，但是一个容器(或者说Service)只能有一个Engine。
+
+其实tomcat重要的配置文件`server.xml`也是根据这种层次关系设计，它的整体结构如下：
+
+```xml
+<Server> 		<!-- 顶层组件, 表示一个Tomcat实例, 它可以包含多个Service -->
+  <Service> <!-- 一个Service可以包含多个Connector和一个Engine -->
+    <Connector> <!--连接器组件, 表示通信接口 -->
+    <Connector />
+    <Engine> <!-- 容器组件, 一个Engine可以包含多个Host, 处理Service中的所有请求 -->
+      <Host> <!-- 容器组件, 处理特定Host下的请求, 可以包含多个Host -->
+        <Context> <!-- 容器组件, 处理特定Web应用的请求 -->
+        <Context/>
+      </Host>
+    </Engine>
+  </Service>
+</Server> 
+```
+
+tomcat设计的容器具有父子关系，形成一个树形结构，它是采用组合模式来管理这些组件。所有容器组件都实现了 Container 接口，因此组合模式可以使得用户对单容器对象和组合容器对象的使用具有一致性。这里单容器对象指的是最底层的 Wrapper，组合容器对象指的是上面的 Context、Host 或者 Engine
+
+![](./images/Container类关系.png)
+
+其中Container接口的部分类定义：
+
+```java
+public interface Container extends Lifecycle {
+  String ADD_CHILD_EVENT = "addChild";
+  String ADD_VALVE_EVENT = "addValve";
+  String REMOVE_CHILD_EVENT = "removeChild";
+  String REMOVE_VALVE_EVENT = "removeValve";
+
+
+  String getName();
+  public void setName(String name);
+  public Container getParent();
+  public void setParent(Container container);
+  public void addChild(Container child);
+  public void removeChild(Container child);
+  public Container findChild(String name);
+}
+```
+
+### 2.2.2.Mapper
+
+其实，Tomcat将容器拆分成这么多层次，也就带来一个难题，那就是怎么将客户的请求信息定位到最底层的Servlet上。Tomcat设计一个映射组件`org.apache.catalina.mapper.Mapper`，它保存了容器组件与访问路径的映射关系，例如：Host容器配置的域名、Context容器配置的Web应用根路径、Wrapper容器配置的Servlet映射路径。当一个请求到来时，Mapper根据URL的域名选定Host组件，再根据URL路径选定Context组件，最后还是根据URL路径定位具体的Wrapper(也就是Servlet)
+
+这个有一个网上的例子，假设一个系统分为两个子系统：前台用户系统、后台管理系统。这两个系统部署在同一个Tomcat上，为了隔离不同的域名，运维同学部署了两个虚拟域名：`manage.shopping.com`和`user.shopping.com`。网站管理人员通过`manage.shopping.com`域名访问 Tomcat 去管理用户和商品，而用户管理和商品管理是两个单独的 Web 应用。客户通过`user.shopping.com`域名去搜索商品和下订单，搜索功能和订单管理也是两个独立的 Web 应用
+
+这种情况下，Tomcat会创建一个Service组件，Service组件会包含一个HTTP连接器和一个Servlet容器。根据上面的层次架构分析，一个Servlet容器仅包含一个Engine容器组件。在Engine容器组件中会创建两个Host容器组件，每个Host容器组件又会创建两个Context子容器，表示两个Web应用。而每个Web应用下会有多个Servlet，还会在Context容器下创建多个Wrapper子容器，最终每个容器组件都有各自的访问路径，如图：
+
+<img src="./images/tomcat定位具体Servlet的过程.jpeg" style="zoom:50%;" />
+
+假如有用户访问一个 URL，比如图中的`http://user.shopping.com:8080/order/buy`，
+
+**①根据协议和端口号选定Service和Engine**
+
+Tomcat的每个连接器都会监听不同的端口号，默认HTTP连接器监听8080端口，默认AJP连接器监听8009端口。上面URL访问的是8080端口，因此这个请求会被HTTP连接器处理。连接器是属于一个Service组件的，所以Service组件就会被确定，同时，一个Service组件只包含一个Servlet容器，也就是确定了Engine容器
+
+**②根据域名选定Host**
+
+Service和Engine确定后，Mapper组件通过URL中的域名即`user.shopping.com`查找与之对应的Host容器组件，此时确定为Host2
+
+**③根据URL路径确定Context**
+
+Host组件确定后，Mapper根据URL路径来匹配Web应用的根路径，例子中的根路径为`/order`，所以确定为Context4
+
+**④根据URL路径确定Wrapper**
+
+Context确定后，Mapper就会通过`web.xml`中配置的Servlet映射路径来找到具体Wrapper，也就是具体的Servlet。
+
+### 2.2.3.Pipeline-Value
+
+实际上，在上面tomcat的查找过程中，会依次对请求做一些处理(其实就是责任链模式啦！)，连接器中的 Adapter 会调用容器的 Service 方法来执行 Servlet，最先拿到请求的是 Engine 容器，Engine 容器对请求做一些处理后，会把请求传给自己子容器 Host 继续处理，以此类推，最后这个请求会传给 Wrapper 容器，Wrapper 会调用Servlet 来处理。对客户端请求”加工“这一过程，tomcat是通过管道Pipeline-Value实现的。
+
+Valve表示一个处理点，它的getNext()方法会将其它Valve关联起来，形成一个链表。关键方法如下：
+
+```java
+public interface Valve {
+  // 获取下一个处理点
+  Valve getNext();
+  // 设置下一个处理点
+  void setNext(Valve valve);
+  // 实际处理请求的逻辑
+  void invoke(Request request, Response response)
+}
+```
+
+Pipeline维护了 Valve 链表，每一个容器都有一个 Pipeline 对象，只要触发这个 Pipeline 的第一个 Valve，这个容器里 Pipeline 中的 Valve 就都会被调用到（由Valve自行调用getNext()方法转发请求给下一个Valve）
+
+```java
+public interface Pipeline extends Contained {
+  void addValve(Valve valve);
+  Valve getBasic();
+  void setBasic(Valve valve);
+  Valve getFirst();
+}
+```
+
+不同容器的 Pipeline 是怎么链式触发的呢，比如 Engine 中 Pipeline 需要调用下层容器 Host 中的 Pipeline，其实是通过getBasic()方法，它返回的Valve，处于 Valve 链表的末端，每个Pipeline 必定会有这一个 Valve，它负责调用下层容器的 Pipeline 里的第一个 Valve。Mapper组件在映射请求的时候，会在Request对象中存储相应的Host、Context等对象，这些存储的容器用来处理这个特定的请求，所以即使Engine容器下有多个Host容器，它也可以在Request对象拿到下一个要处理的Host容器：
+
+<img src="./images/tomcat-Pipeline组件.jpeg" style="zoom:50%;" />
+
+上图的整个调用过程由连接器中的 Adapter 触发的，它会调用 Engine 的第一个 Valve：
+
+```java
+// Calling the container
+connector.getService().getContainer().getPipeline().getFirst().invoke(request, response);
+```
+
+Wrapper 容器的最后一个 Valve 会创建一个 Filter 链，并调用 doFilter() 方法，最终会调到 Servlet 的 service 方法。其实，Valve和Filter很相似，但是它们有很大的区别：
+
+- Valve 是 Tomcat 的私有机制，与 Tomcat 的基础架构 /API 是紧耦合的。Servlet API 是公有的标准，所有的 Web 容器包括 Jetty 都支持 Filter 机制。
+- 另一个重要的区别是 Valve 工作在 Web 容器级别，拦截所有应用的请求；而 Servlet Filter 工作在应用级别，只能拦截某个 Web 应用的所有请求。如果想做整个 Web 容器的拦截器，必须通过 Valve 来实现。
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+tomcat日志
+
+- catalina.***.log：记录 Tomcat 启动过程的信息，在这个文件可以看到启动的 JVM 参数以及操作系统等日志信息
+- catalina.out：Tomcat 的标准输出（stdout）和标准错误（stderr），这是在 Tomcat 的启动脚本里指定的，如果没有修改的话 stdout 和 stderr 会重定向到这里。所以在这个文件里可以看到我们程序打印出来的信息
+- localhost.**.log：记录 Web 应用在初始化过程中遇到的未处理的异常，会被 Tomcat 捕获而输出这个日志文件
+- localhost_access_log.**.txt：存放访问 Tomcat 的请求日志，包括 IP 地址以及请求的路径、时间、请求协议以及状态码等信息。
+- manager.\*\*\*.log/host-manager.***.log： Tomcat 自带的 manager 项目的日志信息。
+
+
+
+
+
+
+
+
+
+# *.心得
+
+设计复杂系统的思路：
+
+- 分析需求，根据高内聚低耦合的原则确定子模块，然后找出子模块中的变化点和不变点，用接口和抽象基类去封装不变点，在抽象基类中定义模板方法，让子类自行实现抽象方法，也就是具体子类去实现变化点。

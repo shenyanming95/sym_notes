@@ -78,11 +78,11 @@ tomcat设计两个核心组件：
 
 tomcat设计了3个组件来实现连接器的功能，分别是：EndPoint、Processor、Adapter。Endpoint负责提供字节流给Processor，Processor负责提供Tomcat Request对象给Adapter，Adapter负责转换ServletRequest对象给容器。
 
-<img src="./images/tomcat-connector组件.jpeg" style="zoom:50%;" />
+<img src="./images/tomcat-connector组件.jpeg" style="zoom:67%;" />
 
 为了让`I/O`模型和应用层协议能够自由搭配，tomcat提供ProtocolHandler接口，来将网络通信(EndPoint)和应用层协议解析(Processor)放在一起处理。面向对象编程的精髓就是继承和多态，同样tomcat也会抽出稳定不变的基类AbstractProtocol，然后每一个应用层协议都有自己的抽象基类，例如AbstractAjpProtocol 和 AbstractHttp11Protocol，最后根据`I/O`模型实现抽象基类，继承关系如下：
 
-<img src="./images/ProtocolHandler继承关系.jpeg" style="zoom:50%;" />
+<img src="./images/ProtocolHandler继承关系.jpeg" style="zoom:67%;" />
 
 ### 2.1.1.ProtocolHandler
 
@@ -96,7 +96,7 @@ tomcat提供了ProtocolHandler，合并了EndPoint和Processor两个基础组件
 
   应用层协议解析接口，用来实现HTTP协议，对应tomcat源码的`org.apache.coyote.Processor`。Processor 接收来自 EndPoint 的 Socket，读取字节流解析成 Tomcat Request 和 Response 对象，并通过 Adapter 将其提交到容器处理
 
-<img src="./images/tomcat-ProtocolHandler组件.jpeg" style="zoom:50%;" />
+<img src="./images/tomcat-ProtocolHandler组件.jpeg" style="zoom:77%;" />
 
 EndPoint的Acceptor接收到Socket连接后，生成一个SocketProcessor任务提交到线程池(Executor)处理，SocketProcessor实现了Runnable接口，它的run()方法会调用Processor组件去解析应用层协议。Processor通过解析生成Request对象，调用Adapter的service()方法。
 
@@ -112,7 +112,7 @@ tomcat支持多种协议，那么每种协议的请求信息都不一样，Adapt
 
 **Tomcat 通过一种分层的架构，使得 Servlet 容器具有很好的灵活性**。它设计了 4 种容器： Engine、Host、Context 和 Wrapper，这 4 种容器不是平行关系，而是父子关系：
 
-<img src="./images/tomcat-Servlet容器层次结构.jpeg" style="zoom:50%;" />
+<img src="./images/tomcat-Servlet容器层次结构.jpeg" style="zoom:78%;" />
 
 前面说过，一个Tomcat实例可以有多个Service，一个Service由一个容器 + 多个连接器组成。上图就是容器的构造：
 
@@ -170,7 +170,7 @@ public interface Container extends Lifecycle {
 
 这种情况下，Tomcat会创建一个Service组件，Service组件会包含一个HTTP连接器和一个Servlet容器。根据上面的层次架构分析，一个Servlet容器仅包含一个Engine容器组件。在Engine容器组件中会创建两个Host容器组件，每个Host容器组件又会创建两个Context子容器，表示两个Web应用。而每个Web应用下会有多个Servlet，还会在Context容器下创建多个Wrapper子容器，最终每个容器组件都有各自的访问路径，如图：
 
-<img src="./images/tomcat定位具体Servlet的过程.jpeg" style="zoom:50%;" />
+<img src="./images/tomcat定位具体Servlet的过程.jpeg" style="zoom:80%;" />
 
 假如有用户访问一个 URL，比如图中的`http://user.shopping.com:8080/order/buy`，
 
@@ -220,7 +220,7 @@ public interface Pipeline extends Contained {
 
 不同容器的 Pipeline 是怎么链式触发的呢，比如 Engine 中 Pipeline 需要调用下层容器 Host 中的 Pipeline，其实是通过getBasic()方法，它返回的Valve，处于 Valve 链表的末端，每个Pipeline 必定会有这一个 Valve，它负责调用下层容器的 Pipeline 里的第一个 Valve。Mapper组件在映射请求的时候，会在Request对象中存储相应的Host、Context等对象，这些存储的容器用来处理这个特定的请求，所以即使Engine容器下有多个Host容器，它也可以在Request对象拿到下一个要处理的Host容器：
 
-<img src="./images/tomcat-Pipeline组件.jpeg" style="zoom:50%;" />
+<img src="./images/tomcat-Pipeline组件.jpeg" style="zoom:80%;" />
 
 上图的整个调用过程由连接器中的 Adapter 触发的，它会调用 Engine 的第一个 Valve：
 

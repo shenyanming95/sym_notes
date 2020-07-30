@@ -28,6 +28,7 @@
 
 ## 3.Java中间件
 
+- canal
 - elasticsearch
 - kafka
 - mongoDB
@@ -37,6 +38,7 @@
 - rabbitMQ
 - redis
 - sharding-jdbc
+- tomcat
 - zookeeper
 
 ## 4.linux
@@ -54,3 +56,4 @@
 ## 6.其它
 
 - git
+- 正则表达式

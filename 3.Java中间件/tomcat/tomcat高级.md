@@ -108,7 +108,7 @@ tomcat支持多种协议，那么每种协议的请求信息都不一样，Adapt
 
 在tomcat里，容器Container就是来装载和调度Servlet的。
 
-### 2.2.1.层次架构
+### 2.2.1.Engine
 
 **Tomcat 通过一种分层的架构，使得 Servlet 容器具有很好的灵活性**。它设计了 4 种容器： Engine、Host、Context 和 Wrapper，这 4 种容器不是平行关系，而是父子关系：
 
@@ -234,15 +234,88 @@ Wrapper 容器的最后一个 Valve 会创建一个 Filter 链，并调用 doFil
 - Valve 是 Tomcat 的私有机制，与 Tomcat 的基础架构 /API 是紧耦合的。Servlet API 是公有的标准，所有的 Web 容器包括 Jetty 都支持 Filter 机制。
 - 另一个重要的区别是 Valve 工作在 Web 容器级别，拦截所有应用的请求；而 Servlet Filter 工作在应用级别，只能拦截某个 Web 应用的所有请求。如果想做整个 Web 容器的拦截器，必须通过 Valve 来实现。
 
+# 3.组件生命周期
+
+设计就是要找到系统的变化点和不变点。tomcat的不变点就是每个组件都要经历创建、初始化、启动这几个过程，这些状态以及状态的转化是不变的。而变化点是每个具体组件的初始化方法，也就是启动方法是不一样的
+
+LifeCycle 接口里应该定义这么几个方法：init()、start()、stop() 和 destroy()，每个具体的组件去实现这些方法。
+
+## 3.1.接口
+
+LifeCycle
+
+```java
+public interface Lifecycle {
+  String BEFORE_INIT_EVENT = "before_init";
+  String AFTER_INIT_EVENT = "after_init";
+  String START_EVENT = "start";
+  String BEFORE_START_EVENT = "before_start";
+  String AFTER_START_EVENT = "after_start";
+  String STOP_EVENT = "stop";
+  String BEFORE_STOP_EVENT = "before_stop";
+  String AFTER_STOP_EVENT = "after_stop";
+  String AFTER_DESTROY_EVENT = "after_destroy";
+  String BEFORE_DESTROY_EVENT = "before_destroy";
+  String PERIODIC_EVENT = "periodic";
+  String CONFIGURE_START_EVENT = "configure_start";
+  String CONFIGURE_STOP_EVENT = "configure_stop";
+  
+  void addLifecycleListener(LifecycleListener listener);
+  LifecycleListener[] findLifecycleListeners();
+  void removeLifecycleListener(LifecycleListener listener);
+  
+  void init() throws LifecycleException;
+  void start() throws LifecycleException;
+  void stop() throws LifecycleException;
+  void destroy() throws LifecycleException;
+  LifecycleState getState();
+  String getStateName();
+}
+```
+
+
+
+LifeCycleState
+
+```java
+public enum LifecycleState {
+  NEW(false, null),
+  INITIALIZING(false, Lifecycle.BEFORE_INIT_EVENT),
+  INITIALIZED(false, Lifecycle.AFTER_INIT_EVENT),
+  STARTING_PREP(false, Lifecycle.BEFORE_START_EVENT),
+  STARTING(true, Lifecycle.START_EVENT),
+  STARTED(true, Lifecycle.AFTER_START_EVENT),
+  STOPPING_PREP(true, Lifecycle.BEFORE_STOP_EVENT),
+  STOPPING(false, Lifecycle.STOP_EVENT),
+  STOPPED(false, Lifecycle.AFTER_STOP_EVENT),
+  DESTROYING(false, Lifecycle.BEFORE_DESTROY_EVENT),
+  DESTROYED(false, Lifecycle.AFTER_DESTROY_EVENT),
+  FAILED(false, null);
+
+  private final boolean available;
+  private final String lifecycleEvent;
+
+  private LifecycleState(boolean available, String lifecycleEvent) {
+    this.available = available;
+    this.lifecycleEvent = lifecycleEvent;
+  }
+}
+```
 
 
 
 
 
+<img src="./images/tomcat-LifeCycle类UML.png" style="zoom:67%;" />
 
 
 
 
+
+tomcat注册监听器`org.apache.catalina.LifecycleListener`：
+
+- Tomcat 自定义了一些监听器，这些监听器是父组件在创建子组件的过程中注册到子组件的。比如 MemoryLeakTrackingListener 监听器，用来检测 Context 容器中的内存泄漏，这个监听器是 Host 容器在创建 Context 容器时注册到 Context 中的。
+- 还可以在 server.xml 中定义自己的监听器，Tomcat 在启动时会解析 server.xml，创建监听器并注册到容器组件。
 
 
 
@@ -264,6 +337,18 @@ tomcat日志
 
 
 
+# *.tomcat线程池
+
+名字里带有Acceptor的线程负责接收浏览器的连接请求。
+
+名字里带有Poller的线程，其实内部是个Selector，负责侦测IO事件。
+
+名字里带有Catalina-exec的是工作线程，负责处理请求。
+
+名字里带有 Catalina-utility的是Tomcat中的工具线程，主要是干杂活，比如在后台定期检查Session是否过期、定期检查Web应用是否更新（热部署热加载）、检查异步Servlet的连接是否过期等等。
+
+
+
 
 
 # *.心得
@@ -271,3 +356,13 @@ tomcat日志
 设计复杂系统的思路：
 
 - 分析需求，根据高内聚低耦合的原则确定子模块，然后找出子模块中的变化点和不变点，用接口和抽象基类去封装不变点，在抽象基类中定义模板方法，让子类自行实现抽象方法，也就是具体子类去实现变化点。
+
+- 设计一个比较大的系统或者框架时，同样也需要考虑这几个问题：如何统一管理组件的创建、初始化、启动、停止和销毁？如何做到代码逻辑清晰？如何方便地添加或者删除组件？如何做到组件启动和停止不遗漏、不重复？
+
+
+
+
+
+
+
+高并发就是能快速地处理大量的请求，需要合理设计线程模型让 CPU 忙起来，尽量不要让线程阻塞，因为一阻塞，CPU 就闲下来了

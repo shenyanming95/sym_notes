@@ -319,7 +319,63 @@ tomcat注册监听器`org.apache.catalina.LifecycleListener`：
 
 
 
+# 4.连接器
 
+tomcat支持多种IO模型
+
+## 4.1.NioEndpoint
+
+Tomcat 的 NioEndPoint 组件基于java的nio包实现了 I/O 多路复用模型，一共包含 LimitLatch、Acceptor、Poller、SocketProcessor 和 Executor 共 5 个组件
+
+![](./images/NioEndPoint工作流程.jfif)
+
+
+
+- Executor：线程池，负责运行 SocketProcessor 任务类，SocketProcessor 的 run 方法会调用 Http11Processor 来读取和解析请求数据。我们知道，Http11Processor 是应用层协议的封装，它会调用容器获得响应，再把响应通过 Channel 写出
+
+111
+
+
+
+- `org.apache.tomcat.util.threads.LimitLatch`
+
+连接控制器，它负责控制最大连接数，NIO 模式下默认是 10000，达到这个阈值后，连接请求被拒绝；当连接数到达最大时会阻塞线程，直到后续组件处理完一个连接后，才会将连接数减 1。但是需要注意到达最大连接数后，操作系统底层还是会接收客户端连接，但用户层已经不再接收；
+
+- `org.apache.tomcat.util.net.Acceptor`
+
+创建**Acceptor**需要传入`org.apache.tomcat.util.net.AbstractEndpoint`，其实是为了持有ServerSocketChannel 对象，该对象在EndPoint的初始化代码：
+
+```java
+serverSock = ServerSocketChannel.open();
+// bind 方法的第二个参数表示操作系统的等待队列长度，当应用层面的连接数到达最大值时，操作系统可以继续
+// 接收连接，那么操作系统能继续接收的最大连接数就是这个队列长度，可以通过 acceptCount 参数配置，
+// 默认是 100。
+serverSock.socket().bind(addr,getAcceptCount());
+
+// 设置成阻塞模式，也就是说它是以阻塞的方式接收连接的
+serverSock.configureBlocking(true);
+```
+
+Acceptor跑在一个单独的线程里，它在一个死循环里调用ServerSocketChannel 的 accept() 方法来接收新连接，一旦有新的连接请求到来，accept() 方法返回获得 SocketChannel 对象，然后**Acceptor**会将 SocketChannel 对象封装在一个 PollerEvent 对象中，并将 PollerEvent 对象压入 Poller 的 Queue 里
+
+- `org.apache.tomcat.util.net.NioEndpoint.Poller`
+
+独立运行在一个线程里，本质是一个 Selector，每个 Poller 线程可能同时被多个 Acceptor 线程调用来注册 PollerEvent。Poller 不断的通过内部的 Selector 对象向内核查询 Channel 的状态，一旦可读就生成任务类 SocketProcessor 交给 Executor 去处理
+
+```java
+private Selector selector;
+
+// 保证同一时刻只有一个 Acceptor 线程对 Queue 进行读写
+private final SynchronizedQueue<PollerEvent> events = new SynchronizedQueue<>();
+```
+
+- `org.apache.tomcat.util.net.NioEndpoint.SocketProcessor`
+
+Poller 会创建 SocketProcessor 任务类交给线程池处理，而 SocketProcessor 实现了 Runnable 接口，用来定义 Executor 中线程所执行的任务，主要就是调用 Http11Processor 组件来处理请求
+
+- `org.apache.catalina.Executor`
+
+Executor 是 Tomcat 定制版的线程池，执行 SocketProcessor 的 run 方法，也就是解析请求并通过容器来处理请求，最终会调用到我们的 Servlet
 
 
 
@@ -331,13 +387,121 @@ tomcat日志
 - localhost_access_log.**.txt：存放访问 Tomcat 的请求日志，包括 IP 地址以及请求的路径、时间、请求协议以及状态码等信息。
 - manager.\*\*\*.log/host-manager.***.log： Tomcat 自带的 manager 项目的日志信息。
 
+## 4.2.Nio2Endpoint
+
+Nio2Endpoint的组件跟NioEndpoint类似，但是**Nio2Endpoint 中没有 Poller 组件，也就是没有 Selector。这是因为在异步 I/O 模式下，Selector 的工作交给内核来做了**
+
+![](./images/Nio2Endpoint工作流程.jfif)
+
+- LimitLatch
+
+连接控制器，它负责控制最大连接数
+
+- Nio2Acceptor
+
+Nio2Acceptor 扩展了 Acceptor，并且 Nio2Acceptor 自己就是处理连接的回调类，因此 Nio2Acceptor 实现了 CompletionHandler 接口。用异步 I/O 的方式来接收连接，跑在一个单独的线程里，也是一个线程组。Nio2Acceptor 接收新的连接后，得到一个 AsynchronousSocketChannel，Nio2Acceptor 把 AsynchronousSocketChannel 封装成一个 Nio2SocketWrapper，并创建一个 SocketProcessor 任务类交给线程池处理，并且 SocketProcessor 持有 Nio2SocketWrapper 对象
+
+```java
+protected class Nio2Acceptor extends Acceptor<AsynchronousSocketChannel>
+    implements CompletionHandler<AsynchronousSocketChannel, Void> {
+    
+@Override
+public void completed(AsynchronousSocketChannel socket,
+        Void attachment) {
+        
+    if (isRunning() && !isPaused()) {
+        if (getMaxConnections() == -1) {
+            // 如果没有连接限制，继续接收新的连接
+            serverSock.accept(null, this);
+        } else {
+            // 如果有连接限制，就在线程池里跑 Run 方法，Run 方法会检查连接数
+            getExecutor().execute(this);
+        }
+        // 处理请求
+        if (!setSocketOptions(socket)) {
+            closeSocket(socket);
+        }
+    } 
+}
+```
+
+- `org.apache.tomcat.util.net.Nio2Endpoint.Nio2SocketWrapper`
+
+Nio2SocketWrapper 的主要作用是封装 Channel，并提供接口给 Http11Processor 读写数据，Http11Processor 是不能阻塞等待数据的，按照异步 I/O 的套路，Http11Processor 在调用 Nio2SocketWrapper 的 read 方法时需要注册回调类，read 调用会立即返回，问题是立即返回后 Http11Processor 还没有读到数据， 怎么办呢？
+
+为了解决这个问题，Http11Processor 是通过 2 次 read 调用来完成数据读取操作的。
+
+1. 第一次 read 调用：连接刚刚建立好后，Acceptor 创建 SocketProcessor 任务类交给线程池去处理，Http11Processor 在处理请求的过程中，会调用 Nio2SocketWrapper 的 read 方法发出第一次读请求，同时注册了回调类 readCompletionHandler，因为数据没读到，Http11Processor 把当前的 Nio2SocketWrapper 标记为数据不完整。**接着 SocketProcessor 线程被回收，Http11Processor 并没有阻塞等待数据**。这里请注意，Http11Processor 维护了一个 Nio2SocketWrapper 列表，也就是维护了连接的状态。
+
+2. 第二次 read 调用：当数据到达后，内核已经把数据拷贝到 Http11Processor 指定的 Buffer 里，同时回调类 readCompletionHandler 被调用，在这个回调处理方法里会**重新创建一个新的 SocketProcessor 任务来继续处理这个连接**，而这个新的 SocketProcessor 任务类持有原来那个 Nio2SocketWrapper，这一次 Http11Processor 可以通过 Nio2SocketWrapper 读取数据了，因为数据已经到了应用层的 Buffer。
+
+这个回调类 readCompletionHandler 的源码如下，最关键的一点是，**Nio2SocketWrapper 是作为附件类来传递的**，这样在回调函数里能拿到所有的上下文。
+
+```java
+this.readCompletionHandler = new CompletionHandler<Integer, SocketWrapperBase<Nio2Channel>>() {
+    public void completed(Integer nBytes, SocketWrapperBase<Nio2Channel> attachment) {
+        ...
+            // 通过附件类 SocketWrapper 拿到所有的上下文
+            Nio2SocketWrapper.this.getEndpoint().processSocket(attachment, SocketEvent.OPEN_READ, false);
+    }
+
+    public void failed(Throwable exc, SocketWrapperBase<Nio2Channel> attachment) {
+        ...
+    }
+}
+```
 
 
 
 
 
+## 4.3.AprEndpoint 
 
-# *.tomcat线程池
+AprEndpoint工作流程：
+
+![](./images/AprEndpoint工作流程.jfif)
+
+- Acceptor
+
+Accpetor 的功能就是监听连接，接收并建立连接。它的本质就是调用了四个操作系统 API：socket、bind、listen 和 accept
+
+- pollor
+
+Acceptor 接收到一个新的 Socket 连接后，按照 NioEndpoint 的实现，它会把这个 Socket 交给 Poller 去查询 I/O 事件。AprEndpoint 也是这样做的，不过 AprEndpoint 的 Poller 并不是调用 Java NIO 里的 Selector 来查询 Socket 的状态，而是通过 JNI 调用 APR 中的 poll 方法，而 APR 又是调用了操作系统的 epoll API 来实现的。
+
+
+
+AprEndpoint使用的内存空间是本地内存，相比于NioEndpoint和Nio2Endpoint的堆内存，少了复制操作
+
+# 5.线程池
+
+tomcat扩展Java的线程池
+
+```java
+// 定制版的任务队列
+taskqueue = new TaskQueue(maxQueueSize);
+ 
+// 定制版的线程工厂
+TaskThreadFactory tf = new TaskThreadFactory(namePrefix,daemon,getThreadPriority());
+ 
+// 定制版的线程池
+executor = new ThreadPoolExecutor(getMinSpareThreads(), getMaxThreads(), maxIdleTime, TimeUnit.MILLISECONDS,taskqueue, tf);
+
+```
+
+- Tomcat 有自己的定制版任务队列和线程工厂，并且可以限制任务队列的长度，它的最大长度是 maxQueueSize。
+- Tomcat 对线程数也有限制，设置了核心线程数（minSpareThreads）和最大线程池数（maxThreads）。
+
+Tomcat 线程池扩展了原生的 ThreadPoolExecutor，通过重写 execute 方法实现了自己的任务处理逻辑：
+
+1. 前 corePoolSize 个任务时，来一个任务就创建一个新线程。
+2. 再来任务的话，就把任务添加到任务队列里让所有的线程去抢，如果队列满了就创建临时线程。
+3. 如果总线程数达到 maximumPoolSize，**则继续尝试把任务添加到任务队列中去。**
+4. **如果缓冲队列也满了，插入失败，执行拒绝策略。**
+
+Tomcat 线程池和 Java 原生线程池的区别，其实就是在第 3 步，Tomcat 在线程总数达到最大数时，不是立即执行拒绝策略，而是再尝试向任务队列添加任务，添加失败后再执行拒绝策略
+
+
 
 名字里带有Acceptor的线程负责接收浏览器的连接请求。
 
@@ -351,6 +515,39 @@ tomcat日志
 
 
 
+# 6.对象池
+
+所谓的对象池技术，就是说一个 Java 对象用完之后把它保存起来，之后再拿出来重复使用，省去了对象创建、初始化和 GC 的过程。对象池技术是典型的以**空间换时间**的思路。
+
+比如 Tomcat 和 Jetty 处理 HTTP 请求的场景就符合这个特征，请求的数量很多，为了处理单个请求需要创建不少的复杂对象（比如 Tomcat 连接器中 SocketWrapper 和 SocketProcessor），而且一般来说请求处理的时间比较短，一旦请求处理完毕，这些对象就需要被销毁，因此这个场景适合对象池技术。
+
+Tomcat 用 SynchronizedStack 类来实现对象池
+
+
+
+
+
+
+
+
+
+
+
+
+
+# *.tomcat高并发之道
+
+
+
+1. I/O 和线程模型
+
+2. 减少系统调用
+3. 池化、零拷贝
+4. 高效的并发编程，尽量避免锁，或者减小锁的粒度
+5. 并发容器的使用
+
+
+
 # *.心得
 
 设计复杂系统的思路：
@@ -359,10 +556,4 @@ tomcat日志
 
 - 设计一个比较大的系统或者框架时，同样也需要考虑这几个问题：如何统一管理组件的创建、初始化、启动、停止和销毁？如何做到代码逻辑清晰？如何方便地添加或者删除组件？如何做到组件启动和停止不遗漏、不重复？
 
-
-
-
-
-
-
-高并发就是能快速地处理大量的请求，需要合理设计线程模型让 CPU 忙起来，尽量不要让线程阻塞，因为一阻塞，CPU 就闲下来了
+- 高并发就是能快速地处理大量的请求，需要合理设计线程模型让 CPU 忙起来，尽量不要让线程阻塞，因为一阻塞，CPU 就闲下来了

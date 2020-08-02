@@ -2,7 +2,7 @@
 
 网络IO编程模型是一种无关语言和操作系统的基础知识点，网络IO在client-server服务端模型中，是这样一种请求模式：
 
-![](C:/Users/Administrator/Desktop/笔记-md/1.Java基础/Java网络编程/images/网络IO编程模型.png)
+![](./images/网络IO编程模型.png)
 
 内核空间是底层操作系统的运行环境，而用户空间是我们服务端程序的运行环境。从上图可以看出，数据无论从网卡到用户空间还是从用户空间到网卡都需要经过内核，需要通过系统调用（例如recvfrom/sendto）向内核读写数据，内核再进一步操作网卡
 
@@ -22,7 +22,7 @@
 
 ## 1.2.Unix网络编程模型
 
-![](C:/Users/Administrator/Desktop/笔记-md/1.Java基础/Java网络编程/images/Unix网络编程模型概况.png)
+![](./images/Unix网络编程模型概况.png)
 
 unix有五种网络IO编程模型，分别是:**阻塞IO、非阻塞IO、IO复用、信号驱动、异步IO**，它们的执行流程总结起来就是两个阶段：
 
@@ -36,31 +36,31 @@ unix有五种网络IO编程模型，分别是:**阻塞IO、非阻塞IO、IO复�
 
 ### 1.2.1.同步阻塞I/O
 
-![](C:/Users/Administrator/Desktop/笔记-md/1.Java基础/Java网络编程/images/同步阻塞IO模型.png)
+![](./images/同步阻塞IO模型.png)
 
 应用程序进行 recvfrom 系统调用时将阻塞在此调用，直到该套接字上有数据并且复制到用户空间缓冲区，调用线程在整个处理过程中，一直处于阻塞状态。Java传统的IO模型(ServerSocket+Socket)就是基于这种模式，因此它需要一个主线程不断循环接收客户端请求，另起线程池异步处理客户端请求.
 
 ### 1.2.2.同步非阻塞I/O
 
-![](C:/Users/Administrator/Desktop/笔记-md/1.Java基础/Java网络编程/images/同步非阻塞IO模型.png)
+![](./images/同步非阻塞IO模型.png)
 
 应用程序需要把Socket设置为非阻塞模式，告诉内核，当所请求的 I/O 操作无法完成时，不要将线程阻塞，而是返回一个错误（不同的接口立即返回时的错误值不太一样，如recv、send、accept errno通常被设置为EAGIN 或者EWOULDBLOCK，connect 则为EINPRO- GRESS）应用程序基于 I/O 操作函数将不断的轮询数据是否已经准备好，如果没有准备好，继续轮询，直到数据准备好为止，然后当前线程阻塞住，等到操作系统将数据复制到用户空间成功后才会返回。
 
 ### 1.2.3.I/O多路复用
 
-![](C:/Users/Administrator/Desktop/笔记-md/1.Java基础/Java网络编程/images/IO多路复用模型.png)
+![](./images/IO多路复用模型.png)
 
 应用进程阻塞于 **select/poll/epoll** 等**操作系统函数**等待某个连接变成可读（即客户端发起的Socket连接），再调用 recvfrom 从连接上读取数据。虽然此模式也会阻塞在 select/poll/epoll 上，但与[阻塞IO 模型](#1.2.1.同步阻塞IO)不同的是它阻塞在等待多个连接上有读（写）事件的发生，以较少的代价来同时监听处理多个IO明显提高了效率且增加了单线程/单进程中并行处理多连接的可能。Java的选择器**Selector**就是基于这种模型。
 
 ### 1.2.4.信号驱动I/O
 
-![](C:/Users/Administrator/Desktop/笔记-md/1.Java基础/Java网络编程/images/信号驱动IO模型.png)
+![](./images/信号驱动IO模型.png)
 
 应用进程创建 SIGIO 信号处理程序，此程序可处理连接上数据的读写和业务处理。并向操作系统安装此信号，**线程可以往下执行**。当内核数据准备好会向应用进程发送信号，触发信号处理程序的执行。再在信号处理程序中进行 recvfrom 和业务处理，这期间调用线程也会处于阻塞状态，直到数据处理成功！
 
 ### 1.2.5.异步非阻塞I/O
 
-![](C:/Users/Administrator/Desktop/笔记-md/1.Java基础/Java网络编程/images/异步非阻塞IO模型.png)
+![](./images/异步非阻塞IO模型.png)
 
 应用程序通过 aio_read 告知内核发起IO请求，然后立即返回；然后内核自行准备数据，并把数据从内核空间拷贝到用户空间，最后内核**自动**通知应用程序。整个IO操作已经完成。[信号驱动 IO](#1.2.4.信号驱动IO) 是内核通知程序何时可以启动一个 IO 操作，而异步 IO 模型是由内核通知程序 IO 操作何时完成。前面四种IO模型都带有阻塞部分：有的阻塞在等待数据准备期间，有的阻塞在从内核空间拷贝数据到用户空间，而异步非阻塞IO是真正实现了两个阶段都是异步的场景
 
@@ -80,11 +80,11 @@ unix有五种网络IO编程模型，分别是:**阻塞IO、非阻塞IO、IO复�
 
 现代操作为了实现多任务处理，会实现进程调度的功能，会把进程分为多种状态，其中只有`运行`状态的进程才会获取到CPU使用权。而操作系统会将多个进程放到它的工作队列中，操作系统会分时执行各个运行状态的进程，由于速度很快，看上去就像是同时执行多个任务。例如，下图的计算机中运行着 A、B 与 C 三个进程，其中进程 A 执行着上述基础网络程序，一开始，这 3 个进程都被操作系统的工作队列所引用，处于运行状态，会分时执行
 
-![](C:/Users/Administrator/Desktop/笔记-md/1.Java基础/Java网络编程/images/操作系统工作队列.png)
+![](./images/操作系统工作队列.png)
 
 当进程 A 执行到创建 socket 的代码时，操作系统会创建一个由文件系统管理的 socket 对象。这个 socket 对象包含了`发送缓冲区`、`接收缓冲区`与`等待队列`等成员。等待队列是个非常重要的结构，它指向所有需要等待该 socket 事件的进程。**当程序执行到 recv 时，操作系统会将进程 A 的引用添加到该 socket 的等待队列中**（如下图），同时将进程A置为`阻塞`状态。此时由于工作队列只剩下了进程 B 和 C，依据进程调度，CPU 会轮流执行这两个进程的程序，不会执行进程 A 的程序，就会不会往下执行代码，也不会占用 CPU 资源。
 
-![](C:/Users/Administrator/Desktop/笔记-md/1.Java基础/Java网络编程/images/操作系统socket等待队列.png)
+![](./images/操作系统socket等待队列.png)
 
 进程A阻塞在Socket的recv()期间，计算机收到了对端的数据流，数据会经由网卡传送到内存中，然后网卡通过中断信号通知 CPU 有数据到达，CPU 执行中断程序。此处的中断程序主要有两项功能，
 
@@ -219,17 +219,17 @@ TCP是一个面向连接的、端到端的、提供高可靠性服务的传输�
 
 ### 2.1.2.TCP报文
 
-![](C:/Users/Administrator/Desktop/笔记-md/1.Java基础/Java网络编程/images/TCP报文.png)
+![](./images/TCP报文.png)
 
 其中不同的标志位，代表TCP报文的不同含义：
 
-<img src="C:/Users/Administrator/Desktop/笔记-md/1.Java基础/Java网络编程/images/TCP报文之标志位.png" style="zoom:67%;" />
+<img src="./images/TCP报文之标志位.png" style="zoom:67%;" />
 
 ### 2.1.3.三次握手
 
 建立一个TCP连接时，客户端和服务端总共需要进行三次交互，这个过程就称为“TCP三次握手”。三次握手的目的是连接服务器指定端口，建立TCP连接，并同步连接双方的序列号和确认号，交换TCP窗口大小信息。在socket编程中，客户端执行connect()时就会触发三次握手：
 
-![](C:/Users/Administrator/Desktop/笔记-md/1.Java基础/Java网络编程/images/TCP三次握手.jpg)
+![](./images/TCP三次握手.jpg)
 
 **①第一次握手(SYN=1, seq=x)**
 
@@ -247,7 +247,7 @@ TCP是一个面向连接的、端到端的、提供高可靠性服务的传输�
 
 TCP 的连接的拆除需要发送四个包，因此称为四次挥手(Four-way handshake)，也叫做改进的三次握手。客户端或服务器均可主动发起挥手动作，在 socket 编程中，任何一方执行 close() 操作即可产生挥手操作。
 
-<img src="C:/Users/Administrator/Desktop/笔记-md/1.Java基础/Java网络编程/images/TCP四次握手.jpg" style="zoom:80%;" />
+<img src="./images/TCP四次握手.jpg" style="zoom:80%;" />
 
 **①第一次挥手(FIN=1，seq=x)**
 
@@ -386,11 +386,11 @@ HTTP/2.0让所有通信都在一个TCP连接上完成，，真正实现了请求
 
 ①普通数据拷贝：
 
-<img src="C:/Users/Administrator/Desktop/笔记-md/1.Java基础/Java网络编程/images/普通数据拷贝.jpg" style="zoom:80%;" />
+<img src="./images/普通数据拷贝.jpg" style="zoom:80%;" />
 
 ②数据零拷贝:
 
-<img src="C:/Users/Administrator/Desktop/笔记-md/1.Java基础/Java网络编程/images/数据零拷贝.jpg" style="zoom:80%;" />
+<img src="./images/数据零拷贝.jpg" style="zoom:80%;" />
 
 ## 3.1.内核空间/用户空间
 
@@ -402,7 +402,7 @@ HTTP/2.0让所有通信都在一个TCP连接上完成，，真正实现了请求
 
 内核空间可以执行**任意命令**，调用系统的一切资源(调用硬件、文件读写等)；用户空间只能执行简单的运算，**不能直接调用系统资源**，必须通过系统接口（又称 **system call**），才能向内核发出指令。Linux可以分为三个部分，从下往上依次为：硬件 -> 内核空间 -> 用户空间
 
-<img src="C:/Users/Administrator/Desktop/笔记-md/1.Java基础/Java网络编程/images/linux空间划分.png" style="zoom:67%;" />
+<img src="./images/linux空间划分.png" style="zoom:67%;" />
 
 ## 3.2.上下文切换
 
@@ -428,7 +428,7 @@ HTTP/2.0让所有通信都在一个TCP连接上完成，，真正实现了请求
 
 ### 3.3.1.四次拷贝(或两次拷贝)
 
-<img src="C:/Users/Administrator/Desktop/笔记-md/1.Java基础/Java网络编程/images/4次拷贝(或2次拷贝)时序图.png" style="zoom:65%;" />
+<img src="./images/4次拷贝(或2次拷贝)时序图.png" style="zoom:65%;" />
 
 1. VM向OS发起系统调用read()，**上下文切换**，程序由用户态切换内核态；
 
@@ -444,13 +444,13 @@ HTTP/2.0让所有通信都在一个TCP连接上完成，，真正实现了请求
 
 7. 系统调用write()完成返回，**上下文切换**，程序由内核态切回用户态。
 
-<img src="C:/Users/Administrator/Desktop/笔记-md/1.Java基础/Java网络编程/images/4次拷贝(或2次拷贝)流程图.jpg" />
+<img src="./images/4次拷贝(或2次拷贝)流程图.jpg" />
 
 ### 3.3.2.三次拷贝(或一次拷贝)
 
 通过上面的分析可以看出，第2、3次拷贝（也就是从内核空间到用户空间的来回复制）是没有意义的，数据可以直接从内核缓冲区直接送入Socket缓冲区；零拷贝机制就实现了这一点，但是它需要由操作系统直接支持，不同OS有不同的实现方法。大多数Unix-like系统都是提供了sendfile()的系统调用。
 
-<img src="C:/Users/Administrator/Desktop/笔记-md/1.Java基础/Java网络编程/images/3次拷贝(或1次拷贝)时序图.png" style="zoom:80%;" />
+<img src="./images/3次拷贝(或1次拷贝)时序图.png" style="zoom:80%;" />
 
 1. JVM向OS发起系统调用sendfile()，**上下文切换**，用户态切换成内核态；
 
@@ -462,7 +462,7 @@ HTTP/2.0让所有通信都在一个TCP连接上完成，，真正实现了请求
 
 5. 系统调用sendfile()完成，**上下文切换**，由内核态切回用户态。
 
-![](C:/Users/Administrator/Desktop/笔记-md/1.Java基础/Java网络编程/images/3次拷贝(或1次拷贝)流程图.png)
+![](./images/3次拷贝(或1次拷贝)流程图.png)
 
 ### 3.3.3.两次拷贝(或零次拷贝)
 
@@ -470,7 +470,7 @@ HTTP/2.0让所有通信都在一个TCP连接上完成，，真正实现了请求
 
 但是现在linux提供了Scatter/Gather DMA方式，会预先维护一个物理上不连续的**块描述符的链表**，描述符中包含有数据的起始地址和长度。传输时只需要遍历链表，按序传输数据，全部完成后发起一次中断即可。也就是说，Scatter/Gather DMA根据socket缓冲区中描述符提供的位置和偏移量信息直接将内核空间缓冲区中的数据拷贝到协议引擎上，不需要再从内核缓冲区向Socket缓冲区拷贝数据 —— **这就是零拷贝的最终版**
 
-<img src="C:/Users/Administrator/Desktop/笔记-md/1.Java基础/Java网络编程/images/2次拷贝(或0次拷贝)时序图.png" style="zoom:75%;" />
+<img src="./images/2次拷贝(或0次拷贝)时序图.png" style="zoom:75%;" />
 
 1. JVM向OS发起系统调用sendfile()，**上下文切换**，由用户态切换成内核态；
 
@@ -480,4 +480,4 @@ HTTP/2.0让所有通信都在一个TCP连接上完成，，真正实现了请求
 
 4. 系统调用sendfile()完成，**上下文切换**，由内核态切回用户态。
 
-<img src="C:/Users/Administrator/Desktop/笔记-md/1.Java基础/Java网络编程/images/2次拷贝(或0次拷贝)流程图.png"/>
+<img src="./images/2次拷贝(或0次拷贝)流程图.png"/>

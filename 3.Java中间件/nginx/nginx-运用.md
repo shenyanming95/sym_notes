@@ -59,9 +59,9 @@ nginx的命令脚本放置在sbin目录下，名为：nginx，要执行nginx命�
 
 ③停止nginx：
 
-\- ./nginx -s stop(快速停止)
+-  ./nginx -s stop(快速停止)
 
-\- ./nginx -s quit(有序停止)
+- ./nginx -s quit(有序停止)
 
 # 2.nginx配置详解
 
@@ -211,7 +211,6 @@ upstream server_pool{
 	server 127.0.0.1:8080;
 	server 127.0.0.1:9090;
 }
-
 ```
 
 ### 4.2.4.fair
@@ -229,9 +228,7 @@ upstream server_pool{
 
 # 5.动静分离
 
-nginx动静分离简单来说就是把动态跟静态请求分开，可以理解成使用 Nginx
-
-处理静态页面，Tomcat 处理动态页面。主流的两种配置方案：
+nginx动静分离简单来说就是把动态跟静态请求分开，可以理解成使用 Nginx处理静态页面，Tomcat 处理动态页面。主流的两种配置方案：
 
 1. 把静态文件独立成单独的域名，放在独立的服务器上，是目前主流推崇的方案；
 
@@ -239,10 +236,14 @@ nginx动静分离简单来说就是把动态跟静态请求分开，可以理解
 
 ## 5.1.location配置
 
-实际上nginx实现动静分离，就是通过location的url匹配将不同请求转发到不同服务器上，所以就把静态资源的请求转发静态资源所在服务器上即可
+实际上nginx实现动静分离，就是通过location的url匹配将不同请求转发到不同服务器上，所以就把静态资源的请求转发静态资源所在服务器上即可。例如：配置nginx的`location`，如果请求路径是 `*/resources/*`，就用来映射静态资源；如果请求路径为其它，则转发到tomcat等后端服务器
 
 # 6.nginx集群
 
-借助keepalived部署nginx集群，安装keepalived命令：
+借助keepalived部署nginx集群，安装keepalived命令， 默认安装在/etc/keepalived/目录下
 
-yum install keepalived -y，默认安装在/etc/keepalived/目录下
+`yum install keepalived -y`
+
+# 7.openresty
+
+OpenResty® 是一款基于 NGINX 和 LuaJIT 的 Web 平台。使用它可以容易地部署nginx

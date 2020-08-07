@@ -1,11 +1,17 @@
 # 1.Tomcat简介
 
-## 1.1.知识扫盲
+Tomcat是由Apache软件基金会属下Jakarta项目开发的Servlet容器，按照Sun Microsystems提供的技术规范，实现了对Servlet和JavaServer Page（JSP）的支持，并提供了作为Web服务器的一些特有功能，如Tomcat管理和控制平台、安全局管理和Tomcat阀等。由于Tomcat本身也内含了HTTP服务器，因此也可以视作单独的Web服务器。但是，不能将Tomcat和Apache HTTP服务器混淆，Apache HTTP服务器是用C语言实现的HTTPWeb服务器；这两个HTTP web server不是捆绑在一起的。Apache Tomcat包含了配置管理工具，也可以通过编辑XML格式的配置文件来进行配置。—— 以上来自[维基百科](https://zh.wikipedia.org/wiki/Apache_Tomcat)
 
-`javax.servlet.Servlet`，是一个标准化接口，可以理解为运行在服务端的java小程序。服务器接收到请求后，确定并寻找合适的Servlet响应请求。为了让服务器与业务逻辑解耦，又定义了`Servlet Container`，即Servlet容器，由容器来创建和管理Servlet。Servlet接口和Servlet容器这一整套规范叫做Servlet规范。
+简单地说：Tomcat就是HTTP服务器 + Servlet服务器，属于轻量级web容器！！！
+
+## 1.1.Servlet规范
+
+Java官方的Servlet规范地址：[https://jcp.org/en/jsr/detail?id=369](https://jcp.org/en/jsr/detail?id=369)，目前最新是**Servlet 4.0 Specification**，即4.0规范支持HTTP2.0！
+
+`javax.servlet.Servlet`，是一个标准化接口，可以理解为运行在服务端的java小程序。服务器接收到请求后，确定并寻找合适的Servlet响应请求。为了让服务器与业务逻辑解耦，又定义了`Servlet Container`，即Servlet容器，由容器来创建和管理Servlet。Servlet接口和Servlet容器这一整套规范叫做Servlet规范！！！
 
 ```java
-// Servlet接口定义
+// Servlet接口源码
 public interface Servlet {
   // 第一次创建Servlet, 调用init()初始化, 一般用来构建资源, 例如springmvc通过它创建spring容器.
   public void init(ServletConfig config) throws ServletException;
@@ -24,43 +30,68 @@ public interface Servlet {
 }
 ```
 
-tomcat实现了Servlet规范，它就是一个Servlet容器，同时，tomcat可以接收客户端请求，它还是一个HTTP服务器，所以tomcat也被称为”Web 容器“。其它容器如JBoss和WebLogic，除了是Servlet容器外，还是EJB容器，因此它们是完整的Java EE服务器，而tomcat属于轻量级web容器，在微服务化的应用中被广泛使用，例如：springBoot。
+## 1.2.基本结构
 
-## 1.2.工作流程
+**tomcat日志**
 
-tomcat = HTTP服务器 + Servlet容器，HTTP服务器负责接收网络请求，Servlet容器负责管理和调度Servlet实例，所以tomcat工作流程：
+- catalina.***.log：记录 Tomcat 启动过程的信息，在这个文件可以看到启动的 JVM 参数以及操作系统等日志信息
+- catalina.out：Tomcat 的标准输出（stdout）和标准错误（stderr），这是在 Tomcat 的启动脚本里指定的，如果没有修改的话 stdout 和 stderr 会重定向到这里。所以在这个文件里可以看到我们程序打印出来的信息
+- localhost.**.log：记录 Web 应用在初始化过程中遇到的未处理的异常，会被 Tomcat 捕获而输出这个日志文件
+- localhost_access_log.**.txt：存放访问 Tomcat 的请求日志，包括 IP 地址以及请求的路径、时间、请求协议以及状态码等信息。
+- manager.\*\*\*.log/host-manager.***.log： Tomcat 自带的 manager 项目的日志信息。
+
+
+
+
+
+Coyote是 **Tomcat连接器组件** 的名称，
+
+**Catalina** 是 **Tomcat** 的 **Servlet容器**，**Catalina** 才是 **Tomcat** 的核⼼ ， 其他模块都是为 **Catalina** 提供⽀撑的。 ⽐如 ： 通过 **Coyote** 模块提供链接通信， **Jasper** 模块提供 **JSP引擎** ， **Naming** 提供 **JNDI服务** ， **Juli** 提供 **⽇志服务** 
+
+
+
+整个 **Tomcat** 就是⼀个 **Catalina实例** ， **Tomcat** 启动的时候会初始化这个实例， **Catalina实例** 通过加 server.xml 完成其他实例的创建，创建并管理⼀个 **Server** ， **Server** 创建并管理多个 **服务(Service)** ，每个 **服务(Service)** ⼜可以有多个 **Connector** 和⼀个 **Container** 。
+
+
+
+## 1.3.工作流程
+
+Tomcat分为两大部分：HTTP服务器 + Servlet容器，HTTP服务器负责接收网络请求，Servlet容器负责管理和调度Servlet实例，所以Tomcat工作流程为：
 
 HTTP服务器监听网络请求，如果有客户端发起资源请求，它会将请求信息封装成`javax.servlet.ServletRequest`，然后调用Servlet容器的service()方法；Servlet容器根据请求的URL和Servlet映射关系，定位需要处理请求的Servlet；若该Servlet未加载，Servlet容器会创建它并调用init()方法初始化，然后调用Servlet的service()方法处理请求，最后把`javax.servlet.ServletResponse`返回给HTTP服务器；HTTP服务器再把响应返回给客户端。
 
+**Tomcat高并发设计**的总结，下面各个部分就是针对这5点的具体分析：
+
+1. I/O 和线程模型
+
+2. 减少系统调用
+3. 池化、零拷贝
+4. 高效的并发编程，尽量避免锁，或者减小锁的粒度
+5. 并发容器的使用
+
 # 2.Tomcat架构
 
-tomcat支持的`I/O`模型：
+Tomcat作为一款轻量级的Web容器，它需要实现的2个功能：
+
+①处理Socket连接，负责网络字节流与Request、Response对象的转化；
+
+②加载、管理和调度Servlet，处理Request请求；
+
+Tomcat在架构设计时，分为了两大组件：**连接器**(即Connector)-负责处理连接；**容器**(Container)-负责内部调度。一个容器Container可以对接多个连接器Connector，这样可以支持多种协议。但是容器和连接器并不能独立运行，它们必须配合使用，tomcat会把它们组装到一起成为一个`Service`，通过在 Tomcat 中配置多个 Service，可以实现通过不同的端口号来访问同一台机器上部署的不同应用。最顶层是 Server，这里的 Server 就是一个 Tomcat 实例。一个 Server 中有一个或者多个 Service，一个 Service 中有多个连接器和一个容器。连接器与容器之间通过标准的 ServletRequest 和 ServletResponse 通信
+
+<img src="./images/tomcat-service组件.jpeg" style="zoom:67%;" />
+
+**Tomcat支持的I/O模型：**
 
 - NIO：非阻塞 I/O，采用 Java NIO 类库实现。
 - NIO2：异步 I/O，采用 JDK 7 最新的 NIO2 类库实现。
 - APR：采用 Apache 可移植运行库实现，是 C/C++ 编写的本地库
 
-tomcat支持的应用层协议：
+**Tomcat支持的应用层协议：**
 
 - HTTP/1.1：这是大部分 Web 应用采用的访问协议。
 - AJP：用于和 Web 服务器集成（如 Apache）。
 - HTTP/2：HTTP 2.0 大幅度的提升了 Web 性能。
-
-tomcat需要实现的2个功能：
-
-- 处理Socket连接，负责网络字节流与Request、Response对象的转化；
-- 加载、管理和调度Servlet，以处理Request请求
-
-tomcat设计两个核心组件：
-
-- 连接器，Connector，负责处理连接；
-- 容器，Container，负责内部调度。
-
-一个容器Container可以对接多个连接器Connector，这样可以支持多种协议。但是容器和连接器并不能独立运行，它们必须配合使用，tomcat会把它们组装到一起成为一个`Service`，通过在 Tomcat 中配置多个 Service，可以实现通过不同的端口号来访问同一台机器上部署的不同应用。
-
-<img src="./images/tomcat-service组件.jpeg" style="zoom:67%;" />
-
-最顶层是 Server，这里的 Server 就是一个 Tomcat 实例。一个 Server 中有一个或者多个 Service，一个 Service 中有多个连接器和一个容器。连接器与容器之间通过标准的 ServletRequest 和 ServletResponse 通信。
 
 ## 2.1.连接器
 
@@ -86,7 +117,7 @@ tomcat设计了3个组件来实现连接器的功能，分别是：EndPoint、Pr
 
 ### 2.1.1.ProtocolHandler
 
-tomcat提供了ProtocolHandler，合并了EndPoint和Processor两个基础组件，来处理网络连接和应用层协议。
+Tomcat提供了ProtocolHandler，合并了EndPoint和Processor两个基础组件，来处理网络连接和应用层协议。
 
 - EndPoint
 
@@ -106,7 +137,7 @@ tomcat支持多种协议，那么每种协议的请求信息都不一样，Adapt
 
 ## 2.2.容器
 
-在tomcat里，容器Container就是来装载和调度Servlet的。
+在tomcat里，容器Container就是来装载和调度Servlet的
 
 ### 2.2.1.Engine
 
@@ -236,13 +267,9 @@ Wrapper 容器的最后一个 Valve 会创建一个 Filter 链，并调用 doFil
 
 # 3.组件生命周期
 
-设计就是要找到系统的变化点和不变点。tomcat的不变点就是每个组件都要经历创建、初始化、启动这几个过程，这些状态以及状态的转化是不变的。而变化点是每个具体组件的初始化方法，也就是启动方法是不一样的
-
-LifeCycle 接口里应该定义这么几个方法：init()、start()、stop() 和 destroy()，每个具体的组件去实现这些方法。
+设计就是要找到系统的变化点和不变点。tomcat的不变点就是每个组件都要经历创建、初始化、启动这几个过程，这些状态以及状态的转化是不变的。而变化点是每个具体组件的初始化方法，也就是启动方法是不一样的。LifeCycle 接口里应该定义这么几个方法：init()、start()、stop() 和 destroy()，每个具体的组件去实现这些方法。
 
 ## 3.1.接口
-
-LifeCycle
 
 ```java
 public interface Lifecycle {
@@ -272,8 +299,6 @@ public interface Lifecycle {
   String getStateName();
 }
 ```
-
-
 
 LifeCycleState
 
@@ -310,14 +335,10 @@ public enum LifecycleState {
 
 
 
-
-
 tomcat注册监听器`org.apache.catalina.LifecycleListener`：
 
 - Tomcat 自定义了一些监听器，这些监听器是父组件在创建子组件的过程中注册到子组件的。比如 MemoryLeakTrackingListener 监听器，用来检测 Context 容器中的内存泄漏，这个监听器是 Host 容器在创建 Context 容器时注册到 Context 中的。
 - 还可以在 server.xml 中定义自己的监听器，Tomcat 在启动时会解析 server.xml，创建监听器并注册到容器组件。
-
-
 
 # 4.连接器
 
@@ -332,10 +353,6 @@ Tomcat 的 NioEndPoint 组件基于java的nio包实现了 I/O 多路复用模型
 
 
 - Executor：线程池，负责运行 SocketProcessor 任务类，SocketProcessor 的 run 方法会调用 Http11Processor 来读取和解析请求数据。我们知道，Http11Processor 是应用层协议的封装，它会调用容器获得响应，再把响应通过 Channel 写出
-
-111
-
-
 
 - `org.apache.tomcat.util.threads.LimitLatch`
 
@@ -376,16 +393,6 @@ Poller 会创建 SocketProcessor 任务类交给线程池处理，而 SocketProc
 - `org.apache.catalina.Executor`
 
 Executor 是 Tomcat 定制版的线程池，执行 SocketProcessor 的 run 方法，也就是解析请求并通过容器来处理请求，最终会调用到我们的 Servlet
-
-
-
-tomcat日志
-
-- catalina.***.log：记录 Tomcat 启动过程的信息，在这个文件可以看到启动的 JVM 参数以及操作系统等日志信息
-- catalina.out：Tomcat 的标准输出（stdout）和标准错误（stderr），这是在 Tomcat 的启动脚本里指定的，如果没有修改的话 stdout 和 stderr 会重定向到这里。所以在这个文件里可以看到我们程序打印出来的信息
-- localhost.**.log：记录 Web 应用在初始化过程中遇到的未处理的异常，会被 Tomcat 捕获而输出这个日志文件
-- localhost_access_log.**.txt：存放访问 Tomcat 的请求日志，包括 IP 地址以及请求的路径、时间、请求协议以及状态码等信息。
-- manager.\*\*\*.log/host-manager.***.log： Tomcat 自带的 manager 项目的日志信息。
 
 ## 4.2.Nio2Endpoint
 
@@ -451,10 +458,6 @@ this.readCompletionHandler = new CompletionHandler<Integer, SocketWrapperBase<Ni
 }
 ```
 
-
-
-
-
 ## 4.3.AprEndpoint 
 
 AprEndpoint工作流程：
@@ -468,8 +471,6 @@ Accpetor 的功能就是监听连接，接收并建立连接。它的本质就�
 - pollor
 
 Acceptor 接收到一个新的 Socket 连接后，按照 NioEndpoint 的实现，它会把这个 Socket 交给 Poller 去查询 I/O 事件。AprEndpoint 也是这样做的，不过 AprEndpoint 的 Poller 并不是调用 Java NIO 里的 Selector 来查询 Socket 的状态，而是通过 JNI 调用 APR 中的 poll 方法，而 APR 又是调用了操作系统的 epoll API 来实现的。
-
-
 
 AprEndpoint使用的内存空间是本地内存，相比于NioEndpoint和Nio2Endpoint的堆内存，少了复制操作
 
@@ -503,6 +504,8 @@ Tomcat 线程池和 Java 原生线程池的区别，其实就是在第 3 步，T
 
 
 
+
+
 名字里带有Acceptor的线程负责接收浏览器的连接请求。
 
 名字里带有Poller的线程，其实内部是个Selector，负责侦测IO事件。
@@ -524,27 +527,6 @@ Tomcat 线程池和 Java 原生线程池的区别，其实就是在第 3 步，T
 Tomcat 用 SynchronizedStack 类来实现对象池
 
 
-
-
-
-
-
-
-
-
-
-
-
-# *.tomcat高并发之道
-
-
-
-1. I/O 和线程模型
-
-2. 减少系统调用
-3. 池化、零拷贝
-4. 高效的并发编程，尽量避免锁，或者减小锁的粒度
-5. 并发容器的使用
 
 
 

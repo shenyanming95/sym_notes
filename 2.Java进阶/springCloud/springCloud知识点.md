@@ -1390,6 +1390,14 @@ private String getApplicationId(ConfigurableEnvironment environment) {
 
 ![](./images/Bus总线事件.png)
 
+# 9.路由网关GateWay
+
+# 9.1.路由规则
+
+Gateway内置了多个路由匹配规则：
+
+![](./images/Gateway内置的路由匹配规则.png)
+
 # *.补充
 
 ## *.1.bootstrap.yml介绍
@@ -1416,7 +1424,7 @@ private String getApplicationId(ConfigurableEnvironment environment) {
 
   工程启动时，springCloud会创建一个"Bootstrap Context"，作为spring应用的"Application Context"的父上下文。初始化时，Bootstrap Context负责从外部源加载配置并解析配置，这两个上下文共享一个从外部获取的"Environment"。Bootstrap属性拥有高优先级，默认情况下，它们不会被本地配置覆盖。Bootstrap context和Application context有着不同的约定，所以新增一个bootstrap.yml文件，保证Bootstrap Context和Application Context配置的分离
 
-## 9.2.webHook介绍
+## *.2.webHook介绍
 
 WebHook是当某个事件发生时，通过发送http post请求的方式来通知信息接收方。Webhook来监测你在Github.com上的各种事件，最常见的莫过于push事件。如果你设置了一个监测push事件的Webhook，那么每当你的这个项目有了任何提交，这个Webhook都会被触发，这时Github就会发送一个HTTP POST请求到你配置好的地址。
 

@@ -32,27 +32,20 @@ public interface Servlet {
 
 ## 1.2.基本结构
 
+Tomcat有两个类结构，名字是Tomcat开发者自己取的，分别是：
+
+- Catalina(卡特琳娜?)，是Tomcat的servlet容器
+- Coyote，是Tomcat的连接器组件
+
+Catalina是Tomcat的核心模块，其他模块都是为 Catalina 提供下沉服务的，⽐如 ： Coyote 模块提供链接通信， Jasper 模块提供 JSP引擎 ， Naming 提供 JNDI服务 ， Juli 提供⽇志服务。整个 Tomcat 就是⼀个 Catalina实例 ， Tomcat 启动的时候会初始化这个实例， Catalina实例 通过加 server.xml 完成其他实例的创建，创建并管理⼀个 Server ， Server 创建并管理多个 服务(Service) ，每个 服务(Service) ⼜可以有多个 Connector 和⼀个 Container 
+
 **tomcat日志**
 
-- catalina.***.log：记录 Tomcat 启动过程的信息，在这个文件可以看到启动的 JVM 参数以及操作系统等日志信息
-- catalina.out：Tomcat 的标准输出（stdout）和标准错误（stderr），这是在 Tomcat 的启动脚本里指定的，如果没有修改的话 stdout 和 stderr 会重定向到这里。所以在这个文件里可以看到我们程序打印出来的信息
-- localhost.**.log：记录 Web 应用在初始化过程中遇到的未处理的异常，会被 Tomcat 捕获而输出这个日志文件
-- localhost_access_log.**.txt：存放访问 Tomcat 的请求日志，包括 IP 地址以及请求的路径、时间、请求协议以及状态码等信息。
-- manager.\*\*\*.log/host-manager.***.log： Tomcat 自带的 manager 项目的日志信息。
-
-
-
-
-
-Coyote是 **Tomcat连接器组件** 的名称，
-
-**Catalina** 是 **Tomcat** 的 **Servlet容器**，**Catalina** 才是 **Tomcat** 的核⼼ ， 其他模块都是为 **Catalina** 提供⽀撑的。 ⽐如 ： 通过 **Coyote** 模块提供链接通信， **Jasper** 模块提供 **JSP引擎** ， **Naming** 提供 **JNDI服务** ， **Juli** 提供 **⽇志服务** 
-
-
-
-整个 **Tomcat** 就是⼀个 **Catalina实例** ， **Tomcat** 启动的时候会初始化这个实例， **Catalina实例** 通过加 server.xml 完成其他实例的创建，创建并管理⼀个 **Server** ， **Server** 创建并管理多个 **服务(Service)** ，每个 **服务(Service)** ⼜可以有多个 **Connector** 和⼀个 **Container** 。
-
-
+- catalina.*.log：记录 Tomcat 启动过程的信息，这个文件可以看到启动的 JVM 参数以及操作系统等日志信息
+- catalina.out：Tomcat 的标准输出（stdout）和标准错误（stderr），这是在 Tomcat 的启动脚本里指定的，如果没有修改的话 stdout 和 stderr 会重定向到这里，所以在这个文件里可以看到我们程序打印出来的信息
+- localhost.*.log：记录 Web 应用在初始化过程中遇到的未处理异常，会被 Tomcat 捕获而输出这个日志文件
+- localhost_access_log.*.txt：存放访问 Tomcat 的请求日志，包括 IP 地址以及请求的路径、时间、请求协议以及状态码等信息。
+- manager.\*\*.log/host-manager.*.log： Tomcat 自带的 manager 项目的日志信息
 
 ## 1.3.工作流程
 

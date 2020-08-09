@@ -217,9 +217,9 @@ Producer<String, String> producer = new KafkaProducer<>(props);
 
 ## *.其它配置
 
-### *.1.acks
+- acks
 
-**acks：**用来指定分区中必须有多少个副本收到这条消息，之后生产者才会认为这条消息写入成功
+用来指定分区中必须有多少个副本收到这条消息，之后生产者才会认为这条消息写入成功。注意：acks的设置是字符串而不是整数。
 
 | 取值    | 作用                                                         |
 | ------- | ------------------------------------------------------------ |
@@ -227,19 +227,27 @@ Producer<String, String> producer = new KafkaProducer<>(props);
 | acks=1  | 默认值，只要集群的首领节点收到消息，生产者就会收到一个来自服务器的成果响应，如果消息无法达到首领节点（比如首领节点崩溃，新首领还未被选举出来），生字者就会收到一个错误响应，为了避免消息丢失，生产者会重发消息。但是如果写成功通知了，但此时首领节点还没来得及将数据同步到follower节点就宕机了，还是会造成消息丢失 |
 | acks=-1 | 只有当说是有参与复制的节点都收到消息后，生产者才会收到一个来自服务器的成功响应，这种模式是最安全的但吞吐量最低，它保证不止一个服务器收到消息 |
 
-注意：acks的设置是字符串而不是整数。
-
-### *.2.retries
+- retries
 
 设置生产者在消息发送失败的情况下的重试次数。默认情况下，生产者会在每次重试之间等待100ms，也可以通过`retries.backoff.ms`参数来修改这个时间间隔！
 
-### *.3.batch.size
+- batch.size
 
 当有 消息要被发送同一个分区时，生产者会把它们放在同一个批次里。该参数指定了一个批次可以使用的内存大小，**按照字节数计算，而不是消息的个数**。当批次被填满，批次里的所有消息就会被发送出去。不过生产者并不一定都会等到批次被填满才发哦是哪个，半满的批次，甚至只包含一个消息的批次都有可能被发送。所以就算把`batch.size`设置得很大，也不会造成延迟，只会占用更多的内存而已，如果设置的太小，生产者就会以为频繁发送消息而增加一些额外的开销
 
-### *.4.max.request.size
+- max.request.size
 
 该参数用于控制生产者发送的请求大小，它可以指定能发送的单个消息的最大值，也可以指定单个请求所有消息的总大小。`broker`对可接受的消息最大值也有自己的限制（`message.max.size`），所以两边配置最好匹配，防止生产者发送的消息被broker拒绝
+
+- metadata.max.age.ms
+
+配置Producer定时去更新Broker的元数据，默认值是 300000，即 5 分钟，Producer 每 5 分钟都会强制刷新一次元数据以保证它是最及时的数据
+
+- connections.max.idle.ms
+
+配置Producer与Broker的TCP连接的最大空闲时间，默认为9分钟。如果在 9 分钟内，Producer和Broker之间的TCP没有数据流经过，那么Kafka会主动关闭该连接。设置成 -1，TCP 连接将成为永久长连接（但是TCP协议自己有keepalive，还是会受到keepalive的作用）
+
+
 
 # 4.Consumer
 
@@ -285,7 +293,79 @@ consumer的其它属性配置，官方文档内容：[https://kafka.apache.org/d
 
   参数：--all-topics指定了所有主题，可以修改为--topics，指定单个主题
 
-## 4.2.其它配置
+## 4.2.消息接收
+
+### 4.2.1.位移提交
+
+![](./images/Consumer提交位移的方式.jfif)
+
+对于kafka而言，它的每条消息都有唯一的offset，表示消息在分区中的位置。当消息从broker返回消费者时，broker并不会跟踪消息是否被消费者消费到，而是让消费者自身来管理消费的位移，并向消费者提供更新位移的接口，这种更新位移的方式成为提交(commit)，注意kafka只保证消息在一个分区的顺序性
+
+- 自动提交
+- 同步提交
+- 异步提交
+
+大佬有一个模板，是结合同步和异步提交的优点。对于常规性、阶段性的手动提交，调用 commitAsync() 避免程序阻塞，而在 Consumer 要关闭前，调用 commitSync() 方法执行同步阻塞式的位移提交，以确保 Consumer 关闭前能够保存正确的位移数据。将两者结合后，既实现了异步无阻塞式的位移管理，也确保了 Consumer 位移的正确性
+
+```java
+try {
+    while (true) {
+        ConsumerRecords<String, String> records = 
+            consumer.poll(Duration.ofSeconds(1));
+        process(records); // 处理消息
+        commitAysnc(); // 使用异步提交规避阻塞
+    }
+} catch (Exception e) {
+    handle(e); // 处理异常
+} finally {
+    try {
+        consumer.commitSync(); // 最后一次提交使用同步阻塞式提交
+    } finally {
+        consumer.close();
+    }
+}
+```
+
+### 4.2.2.指定位移
+
+。。。待定
+
+### 4.2.3.CommitFailedException
+
+CommitFailedException，是kafka consumer端发生的异常，就是 Consumer 客户端在提交位移时出现了错误或异常，而且还是那种不可恢复的严重异常。从源代码方面来说，CommitFailedException 异常通常发生在**手动提交位移**时，即用户显式调用 KafkaConsumer.commitSync() 方法时。从使用场景来说，有两种典型的场景可能遭遇该异常
+
+**场景一：**
+
+当消息处理的总时间超过预设的 `max.poll.interval.ms` 参数值时，Kafka Consumer 端会抛出 CommitFailedException 异常。重现此异常很简单，设置Consumer 端参数`max.poll.interval.ms=5 `，然后循环调用 KafkaConsumer.poll ()，每次睡眠6s
+
+```java
+Properties props = new Properties();
+props.put("max.poll.interval.ms", 5000);
+consumer.subscribe(Arrays.asList("test-topic"));
+
+while (true) {
+    ConsumerRecords<String, String> records = 
+        consumer.poll(Duration.ofSeconds(1));
+    Thread.sleep(6000L);
+    consumer.commitSync();
+}
+```
+
+解决方式：
+
+①缩短单条消息的处理时间；
+
+②增加``max.poll.interval.ms``最大时长，在最新版的 Kafka 中，该参数的默认值是 5 分钟；
+
+③减少一次性消费的消息总数，即Consumer 端参数`max.poll.records`，该参数的默认值是 500 条，表明调用一次 KafkaConsumer.poll 方法，最多返回 500 条消息；
+
+④开启多线程加速消费；
+
+**场景二：**
+
+Kafka Java Consumer 端还提供了一个名为 Standalone Consumer 的独立消费者。它没有消费者组的概念，但是独立消费者也要指定 group.id 参数才能提交位移。如果应用中同时出现了设置相同 group.id 值的Consumer Group和 Standalone Consumer，那么当 Standalone Consumer程序手动提交位移时，Kafka 就会立即抛出 CommitFailedException 异常。因为 Kafka 无法识别这个具有相同 group.id 的消费者实例，于是就向它返回一个错误，表明它不是消费者组内合法的成员
+
+## \*.*.其它配置
 
 - fetch.min.bytes
 
@@ -368,4 +448,3 @@ kafka只能增加分区，不能减少分区
 bin/kafka-topics.sh --alter --zookeeper localhost:2181 --topic sym_demo --partition 3
 ```
 
-# 

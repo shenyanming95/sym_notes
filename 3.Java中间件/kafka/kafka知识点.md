@@ -41,19 +41,23 @@ Kafka 是消息引擎系统，也是分布式流处理平台。
 
 # 2.生产者Producer
 
-kafka消息的发送方
+Kafka客户端，消息发送方
 
-## 2.1.基本组件
+## 2.1.消息发送流程
 
-- 序列化器
+从我们创建出一个KafkaProducer开始，到调用它的send()方法，一条消息时如何发送到Broker上的呢？
+
+![](./images/kafka-producer消息发送流程.png)
+
+### 2.1.1.序列化器
 
 消息要在网络上传输，必须以字节流的形式，即需要被序列化。kafka的序列化器接口：`org.apache.kafka.common.serialization.Serializer`，默认提供了字符串序列化器、整型序列化器和字节数组序列化器等等..
 
-- 分区器
+### 2.1.2.分区器
 
 分区器是用来决定消息要发送到broker的哪个分区上，kafka的分区器接口：`org.apache.kafka.clients.producer.Partitioner`，若用户没指定分区器实现，kafka会使用`org.apache.kafka.clients.producer.internals.DefaultPartitioner`，它是根据传递消息的key来进行分区的分配，即hash(key)%numPartitions，如果key相同的话就会分配到统一分区
 
-- 拦截器
+### 2.1.3.拦截器
 
 拦截器是用来对生产者做定制化的逻辑控制，可以在消息发送之前进行额外的处理。kafka的拦截器接口：`org.apache.kafka.clients.producer.ProducerInterceptor`。一般用于以下场景：
 
@@ -63,89 +67,108 @@ kafka消息的发送方
 
 ​	③统计类需求
 
-## 2.2.分区机制
+## 2.2.分区发送机制
 
 分区partition的作用就是提供负载均衡的能力，实现系统的高伸缩性（Scalability）。这个概念在分布式系统中很常见，只不过叫法可能不同。在 Kafka 中叫分区，在 MongoDB 和 Elasticsearch 中就叫分片 Shard，而在 HBase 中则叫 Region，在 Cassandra 中又被称作 vnode，底层的分区思想是一样。
 
 实际开发中，生产者分区机制，除了支持负载均衡以外，还会有一些业务上的需求，比如规定带有指定值的消息只能发送到规定的partition上。这就需要使用到kafka生产者的分区策略， **所谓分区策略是决定生产者将消息发送到哪个分区的算法。**Kafka 提供了默认的分区策略，同时也支持自定义分区策略，就是实现[基本组件](# 2.1.基本组件)中的分区器接口
 
-- 轮询策略
+### 2.2.1.轮询
 
 Round-robin 策略，即顺序分配。比如一个主题下有 3 个分区，那么第一条消息被发送到分区 0，第二条被发送到分区 1，第三条被发送到分区 2，以此类推。当生产第 4 条消息时又会重新开始，即将其分配到分区 0。这是kafka默认的生产者分区策略
 
 ![](./images/生产者分区-轮询策略.png)
 
-- 随机策略
+### 2.2.2.随机
 
 Randomness 策略。所谓随机就是随意地将消息放置到任意一个分区上。**如果追求数据的均匀分布，还是使用轮询策略比较好**。事实上，随机策略是老版本生产者使用的分区策略，在新版本中已经改为轮询了。
 
 ![](./images/生产者分区-随机策略.png)
 
-- 消息键保序策略
+### 2.2.3.消息键保序
 
  Key-ordering 策略。Kafka 允许为每条消息定义消息键，简称为Key，开发中可以为Key附上实际业务属性，这样可以保证同一个 Key 的所有消息都进入到相同的分区里面，由于每个分区下的消息处理都是有顺序的，故这个策略被称为按消息键保序策略
 
 ![](./images/生产者分区-消息建保序策略.png)
 
-## 2.3.消息发送流程
+## 2.5.TCP连接管理
 
-![](./images/kafka-producer消息发送流程.png)
+在kafka中，不管是Producer、Consumer还是Broker之间，它们的通信都是基于TCP。Kafka开发人员选择TCP的一个原因是：**多路复用请求，即 multiplexing request，是指将两个或多个数据流合并到底层单一物理连接中的过程**。
 
-## 2.4.消息不丢失
+### 2.5.1.建立连接
 
-**Kafka 只对“已提交”的消息（committed message）做有限度的持久化保证**，其中有2个要素：
+Producer与Broker之间的TCP连接，在创建KafkaProducer实例时就建立了。Producer应用会在后台创建并启动一个名为 Sender 的线程，该 Sender 线程开始运行时，会根据`bootstrap.servers `参数，与配置的所有Broker建立TCP连接（因此不要配置所有Broker到bootstrap.servers 中），而一旦Producer与任意一台Broker建立连接后，它就可以从元数据中拉取到集群中的其它Broker。不过，除了在创建实例时建立连接，Producer还有两种场景下会跟Broker建立TCP连接：
 
-- 已提交：Kafka 的若干个 Broker 成功地接收到一条消息并写入到日志文件后，它们会告诉生产者程序这条消息已成功提交。此时，这条消息在 Kafka 看来就正式变为“已提交”消息了；
--  有限度：Kafka 不可能保证在任何情况下都做到不丢失消息，极端情况下还是会丢失消息。
+- Producer更新元数据，若发现还有Broker未连接，会主动与其建立TCP连接；
+- Producer发送消息时，若发现目标Broker未连接，会主动与其建立TCP连接；
 
-### 2.4.1.消息丢失场景
+**kafka对于TCP连接的设计不合理地方？**
 
-①生产者使用`producer.send(msg) `发送消息，生产者并没有收到broker的ack响应就认为消息发送了。其实有可能由于网络原因，丢失了；
+- Producer没必要与所有Broker建立连接，只要跟常交互的Broker建立连接即可。
+- 在创建Producer实例时，不应该启动Sender线程。《Java 并发编程实践》的作者—布赖恩·格茨（Brian Goetz），明确指出了这样做的风险：在对象构造器中启动线程会造成 this 指针的逃逸。Sender 线程完全能够观测到一个尚未构造完成的 KafkaProducer 实例。
 
-②消费者开启多个线程消费消息，开启了自动提交，然后由部分线程出错了，但是消息已经被提交了，所以这个报错的消息就丢失了。
+### 2.5.2.管理流程
 
-③增加主题分区。当增加topic分区后，在某段“不凑巧”的时间间隔后，Producer 先于 Consumer 感知到新增加的分区，而 Consumer 设置的是“从最新位移处”开始读取消息，因此在 Consumer 感知到新分区前，Producer 发送的这些消息就全部“丢失”了，或者说 Consumer 无法读取到这些消息。
-
-### 2.4.2.消息不丢失配置
-
-- 使用 `producer.send(msg, callback)`发送，使用带有回调通知的方法
-- 设置`acks=all`，acks 是 Producer 的一个参数，表示要所有副本 Broker 都接收到消息，该消息才算是“已提交”；
-- 设置 retries 为一个较大的值， retries 同样是 Producer 的参数，保证在网络抖动时候，retries > 0 的 Producer 能够自动重试消息发送，避免消息丢失；
-- 设置 `unclean.leader.election.enable = false`。这是 Broker 端的参数，它控制的是哪些 Broker 有资格竞选分区的 Leader。如果一个 Broker 落后原先的 Leader 太多，那么它一旦成为新的 Leader，必然会造成消息的丢失；
-- 设置 `replication.factor >= 3`。这也是 Broker 端的参数。最好将消息多保存几份，毕竟目前防止消息丢失的主要机制就是冗余;
-- 设置` min.insync.replicas > 1`。这依然是 Broker 端参数，控制的是消息至少要被写入到多少个副本才算是“已提交”。设置成大于 1 可以提升消息持久性。实际环境中千万不要使用默认值 1
-- 确保` replication.factor > min.insync.replicas`。如果两者相等，那么只要有一个副本挂机，整个分区就无法正常工作了。我们不仅要改善消息的持久性，防止数据丢失，还要在不降低可用性的基础上完成。推荐设置成` replication.factor = min.insync.replicas + 1`；
-- 确保消息消费完成再提交。Consumer 端有个参数 enable.auto.commit，最好把它设置成 false，并采用手动提交位移的方式
-
-
+1. 在创建KafkaProducer实例就会启动Sender线程，与bootstrap.servers配置的Broker建立TCP连接；
+2. KafkaProducer首次更新元数据后，会再次与集群所有的Broker建立TCP连接；
+3. Producer发送消息到Broker，若发现与该Broker未建立连接，会与其建立TCP连接；
+4. 若Producer配置` connections.max.idle.ms `大于0，那么Producer建立的TCP连接在达到一定空闲时间时会被自动关闭；但是如果设置为-1，则不会主动关闭这条TCP连接
 
 # 3.消费者Consumer
 
-## 3.1.消费者和消费组
+## 3.1.消费组
 
-kafka消费者可以加入一个消费组，一个消费组可以监听多个topic。kafka会保证一个消费组内的消费者会各自承担一个topic的分区消费（不会出现一个partition由同一个消费组内的两个消费者同时消费.）
+消费组即Consumer Group，消费组**是 Kafka 提供的可扩展且具有容错性的消费者机制**。消费者可以加入一个消费组，它们共享一个Group ID，一个消费组可以监听多个Topic。kafka会保证一个消费组内的消费者会各自承担一个Topic的Partition消费！！
 
-## 3.2.消息接收
+**理想情况下，Consumer 实例的数量应该等于该 Group 订阅主题的分区总数。**如果Consumer数量小于Partition，则必定有一部分Consumer需要承担多个Partition的消费；如果Consumer数量大于Partition，则必定有一部分Consumer永远处于空闲状态，没有Partition给它监听！！
 
-### 3.2.1.位移提交
+## 3.2.位移主题
 
-对于kafka而言，它的每条消息都有唯一的offset，表示消息在分区中的位置。当消息从broker返回消费者时，broker并不会跟踪消息是否被消费者消费到，而是让消费者自身来管理消费的位移，并向消费者提供更新位移的接口，这种更新位移的方式成为提交(commit)，注意kafka只保证消息在一个分区的顺序性
+在原先的kafka版本，Consumer的消费位移offset，是放在zookeeper上，但是zookeeper适合读多写少场景，offset又是频繁写入的。所以，新版本的 Consumer Group 将消费位移offset，保存在 Broker 端的内部主题即__consumer_offsets中。__consumer_offsets 在 Kafka 源码中有个更为正式的名字，叫**位移主题**，当 Kafka 集群中的第一个 Consumer 程序启动时，Kafka 会自动创建位移主题！！位移主题的分区数取决于 Broker 端参数 `offsets.topic.num.partitions`，默认为50。而分区的副本数取决于Broker参数`offsets.topic.replication.factor`，默认值为3。
 
-- 自动提交
-- 同步提交
-- 异步提交
+### 3.2.1.位移管理机制
 
-### 3.2.2.指定位移
+kafka内部会维护一个Topic，名称为`__consumer_offsets`，它跟我们自己创建的Topic是一样的，甚至可以创建它、修改它、删除它。当我们提交消费者位移时，Consumer会将位移offset，作为普通的kafka消息，提交到\__consumer_offsets中，由它保存各个 Kafka 消费者的位移信息，会写入到磁盘中，所以经常可以看到Kafka 日志路径下冒出很多__consumer_offsets-xxx 这样的目录
 
-### 3.2.3.再均衡
+### 3.2.2.消息格式
 
-再均衡，指的是在kafka consumer所订阅的topic发生变化时发生的一种分区partition重分配机制，一般有三种情况：
+虽然我们可以操作位移主题，但是却不能随意向其发送消息，因为这个主题的消息格式，是由Kafka定义的，一旦发送的消息不满足规范，Broker解析不了就会造成崩溃！实际场景中，我们只要控制什么时候提交位移即可，让kafka自己管理这个位移主题。
 
-- consumer group新增或者删除某个consumer，导致其所消费的分区需要分配到组内其他的consumer上；
-- consumer订阅的topic发生变化，比如订阅的topic采用的是正则表达式的形式，如`test-*`。此时如果有一个新建了一个topic `test-user`，那么这个topic的所有分区也是会自动分配给当前的consumer的，此时就会发生再平衡；
-- consumer所订阅的topic发生了新增分区的行为，那么新增的分区就会分配给当前的consumer，此时就会触发再平衡
+位移主题的消息格式大体分为3种，分别是：
 
-kafka提供的再平衡策略主要有三种：`Round Robin`，`Range`和`Sticky`，默认使用的是`Range`。这三种分配策略的主要区别在于：
+- 用于保存 Consumer Group 信息的消息；
+- 用于删除 Group 过期位移甚至是删除 Group 的消息；
+- 用于存储consumer offset的消息，分为两部分：消息键和消息体，其中消息键包括：Group ID + 主题名称 + 分区号；消息体除了保存基本的位移offset外，还保存一些额外的元数据，诸如时间戳和用户自定义的数据等
+
+第一种消息，比较隐秘，其实就是用来注册Consumer Group的；
+
+第二种消息，即tombstone消息，被称为“墓碑消息”，也称为“delete mark”。它的主要特点是它的消息体是 null，一旦某个 Consumer Group 下的所有 Consumer 实例都停止了，而且它们的位移数据都已被删除时，Kafka 会向位移主题的对应分区写入 tombstone 消息，表明要彻底删除这个 Group 的信息
+
+第三种消息，就是大部分使用的提交offset的消息！
+
+### 3.2.3.Compact策略
+
+kafka提供了针对位移主题消息特点的消息删除策略，防止磁盘写满。它使用**Compact 策略**来删除位移主题中的过期消息，定义过期的标准：<u>同一个 Key 的两条消息 M1 和 M2，如果 M1 的发送时间早于 M2，那么 M1 就是过期消息</u>。kafka会开启一个后台线程—`Log Cleaner`，定期扫描日志的所有消息，剔除那些过期的消息，然后把剩下的消息整理在一起（其实就是和redis整理AOF日志一样）
+
+![](./images/Compact过程.jfif)
+
+## 3.3.重平衡
+
+kafka的重平衡，是一个经常出现问题的技术点，它其实就是：规划一个 Consumer Group 下的所有 Consumer ，如何合理分配订阅 Topic 的所有Partition。比如某个 Group 下有 20 个 Consumer 实例，它订阅了一个具有 100 个分区的 Topic。正常情况下，Kafka 平均会为每个 Consumer 分配 5 个分区。这个分配的过程就叫 Rebalance。
+
+### 3.3.1.出现场景
+
+在 Rebalance 过程中，所有 Consumer 实例都会停止消费，等待 Rebalance 完成，好比JVM发送GC时的STW现象。一般有三种情况会导致重平衡的发生：
+
+- **组成员数发生变更**。比如有新的 Consumer 实例加入组或者离开组，或是有 Consumer 实例崩溃被“踢出”组，都会导致其所消费的分区需要分配到组内其他的consumer上；
+
+- **订阅主题数发生变更**。比如Group订阅Topic，采用的是正则表达式的形式如`test-*`。此时如果新建了一个Topic— `test-user`，那么这个topic的所有分区也是会自动分配给当前的consumer的，此时就会发生重平衡
+
+- **主题分区数发生变更**。Kafka 当前只能允许增加一个主题的分区数。当分区数增加时，就会触发订阅该主题的所有 Group 开启 Rebalance。
+
+### 3.2.2重平衡策略
+
+kafka提供的重平衡策略主要有三种：`Round Robin`，`Range`、`Sticky`，默认使用的是`Range`。这三种分配策略的主要区别在于：
 
 - `Round Robin`：会采用轮询的方式将当前所有的分区依次分配给所有的consumer；
 - `Range`：首先会计算每个consumer可以消费的分区个数，然后按照顺序将指定个数范围的分区分配给各个consumer；
@@ -153,7 +176,47 @@ kafka提供的再平衡策略主要有三种：`Round Robin`，`Range`和`Sticky
   - 将现有的分区尽可能均衡的分配给各个consumer，存在此目的的原因在于`Round Robin`和`Range`分配策略实际上都会导致某几个consumer承载过多的分区，从而导致消费压力不均衡；
   - 如果发生再平衡，那么重新分配之后在前一点的基础上会尽力保证当前未宕机的consumer所消费的分区不会被分配给其他的consumer上；
 
+### 3.2.3.避免重平衡
+
+鉴于kafka重平衡带来的坏影响，最好的方式是尽量避免kafka执行重平衡，有时候并不是主观原因导致的Rebalance，大部分还是客观原因导致的
+
+**协调者Coordinator**
+
+Coordinator，即协调者，专门为 Consumer Group 服务，负责为 Group 执行 Rebalance 以及提供位移管理和组成员管理等。每个Broker都有自己的Coordinator组件，在启动Broker时就会创建并开启它。而Consumer Group，通过位移主题`__consumer_offsets`确定自己要关联的Coordinator：
+
+- 确定位移主题分区。通过`Math.abs(groupId.hashCode() % offsetsTopicPartitionCount)`公式，即 Group id取hashcode，对位移主题的分区数(默认50)取模求绝对值计算，得到的值就是保存该消费组offset信息的位移主题分区号；
+- 确定Broker。第一步求得位移主题分区号，找到它的Leader副本位于哪个Broker上，这个Broker上的Coordinator就是消费组要关联的协调者；
+
+不过，Java Consumer API能够自动发现并连接正确的Coordinator，知道这个算法的目的是当 Consumer Group 出现问题时，需要快速排查 Broker 端日志，能够根据这个算法准确定位 Coordinator 对应的 Broker，不必一台 Broker 一台 Broker 地盲查。
+
+**尽量避免客观因素导致的重平衡**
+
+根据之前记录的Rebalance出现场景，后两个都是运维同学主动操作造成，但是大部分还是因为kafka认为消费者实例宕机了（实际可能并没有），然后自己主动触发的重平衡。听说99% 的 Rebalance，都是这个原因导致的
+
+- Consumer实例会定期向Coordinator发送心跳包。若Consumer没有及时发送心跳请求，就会被认为宕机了，会从Consumer Group移除，最终触发Rebalance。这个心跳的间隔时间，由Consumer端的参数`session.timeout.ms`决定，默认10s。
+
+- Consumer 还提供了一个允许你控制发送心跳请求频率的参数，就是 `heartbeat.interval.ms`，这个值越小，发送心跳请求的频率就越高。
+- Consumer 端还有一个参数，用于控制 Consumer 实际消费能力对 Rebalance 的影响，即 `max.poll.interval.ms` 参数。它限定了 Consumer 应用程序两次调用 poll ()的最大时间间隔，默认为5分钟。如果Consumer在 5 分钟之内无法消费完 poll 方法返回的消息，那么 Consumer 会主动发起“离开组”的请求（LeaveGroup请求），Coordinator 也会开启新一轮 Rebalance。
+- 除了kafka提供的配置外，如果Comsumer应用出现了频繁的 Full GC 导致的长时间停顿，也会引发Rebalance。在实际场景中，因为 GC 设置不合理导致程序频发 Full GC 而引发的非预期 Rebalance 的情况也不少。
+
+大佬建议的配置：
+
+```properties
+## 保证 Consumer 实例在被判定为“dead”之前，能够发送至少 3 轮的心跳请求，即 session.timeout.ms 
+## >= 3 * heartbeat.interval.ms。会话超时session.timeout.ms也不能无脑设置太大，不然真有
+## Consumer挂掉...
+session.timeout.ms = 6s
+heartbeat.interval.ms = 2s
+```
+
+```properties
+## 这个配置就需要根据下沉服务来定义，如果下沉处理消费的时间太久，这个值就需要配置得大一点
+max.poll.interval.ms=***
+```
+
 # 4.主题Topic
+
+。。。wait
 
 # 5.分区Partition
 
@@ -272,24 +335,40 @@ kafka零拷贝技术只用将磁盘文件的数据复制到页面缓存一次，
 
 # 7.稳定性
 
-## 7.1.幂等性
+## 7.1.消息交付可靠性保证
 
-生产者才发生消息给broker，期间如果发生网络异常，生产者由于没有收到broker的ack响应，会重新发送消息。在生产者进行重试的时候，就有可能会重复写入消息，kafka的幂等性可以避免这种情况，但是kafka的幂等性具有一定的限制性：
+消息交付可靠性保障，是指 Kafka 对 Producer 和 Consumer 要处理的消息提供什么样的承诺，默认的承诺有以下三种：
 
-- 会话级别的幂等性，kafka只能保证producer在单个会话内不丢不重，如果producer出现宕机再重启是无法保证幂等的（无法获取之前的幂等状态信息）、
-- 幂等性不能跨多个Topic-partition，只能保证单个partition内的幂等性，当涉及多个Topic-partition时，这中间的状态并没有同步
+- 最多一次（at most once），消息可能会丢失，但绝不会重复发送；
+- 至少一次（at least once），消息不会丢失，但可能重复发送；（默认配置）
+- 精确一次（exactly once），消息既不会丢失，也不会重复发送
 
-producer使用幂等性的示例非常简单，只需要把producer的配置`enable.udempotence`设置为true即可
+kafka是通过幂等性（Idempotence）和事务（Transaction）来实现上面的三种承诺。
 
-## 7.2.事务
+### 7.1.1.幂等性
 
-幂等性并不能跨多个分区运作，而事务可以弥补这个缺憾，事务可以保证对多个分区写入操作的原子性。操作的原子性是指多个操作要么全部成功，要么全部失败。为了实现事务，应用程序必须提供唯一的`transactionalId`，而且要求生产者开启幂等性特性，所以必须设定：
+幂等性是与Producer相关的，例如：Producer给Broker发送一条消息，由于发生网络异常，导致Producer未收到Broker的`ack`响应，它会重试发送。在Producer进行重试的时候，Broker就有可能会重复写入消息。
 
-```java
-// 开启幂等性 + 指定事务ID
-properties.put(ProducerConfig.ENABLE_IDEMPOTENCE_CONFIG, true);
-properties.put(ProducerConfig.TRANSACTIONAL_ID_CONFIG, "11232321");
+所以kafka的幂等性配置是针对Producer实现（kafka至少要0.11.0.0 版本），在创建KafkaProducer实例时，配置`enable.idempotence=true`，就可以创建出一个具有幂等性的Producer。但是这种幂等性具有一定的限制性：
+
+- 幂等性属于会话级别，kafka只能保证producer在单个会话内不丢不重，如果producer出现宕机再重启是无法保证幂等的（无法获取之前的幂等状态信息）
+- 幂等性不能跨Partition，保证某个Topic的一个Partition上不出现重复消息
+
+如果想实现多分区或者多会话上的消息无重复，就只能使用事务！！！
+
+### 7.1.2.事务
+
+Kafka 自 0.11 版本开始也提供了对事务的支持，kafka的事务类似数据库的事务，目前的隔离级别为读-已提交（read-committed）。事务可以保证对多个分区写入操作的原子性，即多个操作要么全部成功，要么全部失败；而且，进程的重启不会影响kafka的事务，依然能保证消息发送的原子性。kafka的事务和幂等性一样，都是针对Producer配置的，只要设置
+
+```properties
+## 开启事务
+enable.idempotence = true
+
+## 指定全局唯一的事务id, 最好跟业务结合, 便于区分
+transctional.id = "aabbcc"
 ```
+
+除了上面的配置外，还需要在代码中显式地操作事务，模板代码为：
 
 ```java
 // 初始化事务
@@ -306,6 +385,15 @@ try {
     producer.abortTransaction();
 }
 ```
+
+这样可以保证消息发送要么全部成功，要么全部失败。即使失败，Kafka 也会把它们写入到底层的日志中，Consumer还是可以看到这些消息。所以，事务不仅需要在Producer配置，还需要在Consumer配置` isolation.level`，它有两个取值：
+
+- read_uncommitted，默认值，表示Consumer可以读取到kafka的任何消息，论事务型 Producer 提交事务还是终止事务，其写入的消息都可以读取。如果Producer开启事务，Consumer就不能配置这个值
+- read_committed，表示Consumer 只会读取事务型 Producer 成功提交事务写入的消息。当然了，它也能看到非事务型 Producer 写入的所有消息。
+
+事务，其实就是在幂等性的基础上，实现了跨分区 + 跨会话。但是，事务的性能比较差，最好只在高一致性的业务场景中使用kafka的事务！！！例如：在Kafka Streams中。如果要实现流处理中的精确一次语义，事务是不可少的。
+
+kafka的事务，主要的机制是两阶段提交（2PC），引入了事务协调器的组件帮助完成分布式事务，这个有空去研究一下下～～
 
 ## 7.3.控制器
 
@@ -356,3 +444,47 @@ A依然是leader，A的log写入了2条消息，但B的log只写入了1条消息
 针对场景2：
 
 ![](./images/kafka水位-数据丢失-情况2-解决.png)
+
+# *.补充
+
+## *.1.kafka保证消息不丢失
+
+一个完整的链路，从Producer → Broker → Consumer，如果要保证Kafka消息不丢失，就得保证：
+
+- Producer消息能发送到Broker
+- Broker自身不丢失消息
+- Consumer能够正确处理消息
+
+### *.1.1.消息丢失场景
+
+1. 生产者使用`producer.send(msg) `发送消息，生产者并没有收到broker的ack响应就认为消息发送了。其实有可能由于网络原因丢失了；
+
+2. 消费者开启多个线程消费消息，开启了自动提交，然后由部分线程出错了，但是消息已经被提交了，所以这个报错的消息就丢失了；
+
+3. 增加主题分区。当增加topic分区后，如果Producer 先于 Consumer 感知到新增加的分区，而 Consumer 设置的是**从最新位移处**（配置了auto.offset.reset=latest）开始读取消息。因此在 Consumer 感知到新分区前，Producer 发送的这些消息就全部丢失了，Consumer 无法读取到这些消息
+
+### *.1.1.消息不丢失配置(建议)
+
+- Producer配置
+
+  - 使用 `producer.send(msg, callback)`发送，使用带有回调通知的方法；
+
+  - 创建Producer时设置`acks=all`，表示要所有副本 Broker 都接收到消息，消息才算是“已提交”；
+
+  - 创建Producer时设置retries（重试）为一个合理值，保证在网络波动时候，retries > 0 的 Producer 能够自动重试消息发送，避免消息丢失；
+
+- Broker配置
+
+  - 设置 `unclean.leader.election.enable = false`，控制哪些 Broker 有资格竞选分区的 Leader。如果一个 Broker 落后原先的 Leader 太多，那么它一旦成为新的 Leader，必然会造成消息的丢失；
+
+  - 设置 `replication.factor >= 3`。将消息多保存几份，毕竟目前防止消息丢失的主要机制就是冗余;
+
+  - 设置` min.insync.replicas > 1`。控制的是消息至少要被写入到多少个副本才算是“已提交”。设置成大于 1 可以提升消息持久性。实际环境中千万不要使用默认值 1；
+
+  - 确保` replication.factor > min.insync.replicas`。如果两者相等，那么只要有一个副本挂机，整个分区就无法正常工作了。为了不降低可用性，推荐设置成` replication.factor = min.insync.replicas + 1`；
+
+- Consumer配置
+
+  - 创建Consumer时，配置` enable.auto.commit=false`，采用手动提交位移的方式，确保消息消费完成再提交
+
+    

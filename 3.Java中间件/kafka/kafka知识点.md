@@ -214,6 +214,18 @@ heartbeat.interval.ms = 2s
 max.poll.interval.ms=***
 ```
 
+## 3.4.TCP连接管理
+
+Kafka Consumer，并不会像Kafka Producer一样，在实例化的时候就发起TCP连接，而是在调用KafkaConsumer.poll()方法时创建的。但是，poll()方法实际干的事情很多，有3个情况会创建TCP连接：
+
+- 发起`FindCoordinator`请求。Consumer程序刚启动，必须知道它所在的Group对应的Coordinator是哪个。默认Consumer会向kafka集群中负载最小的Broker发送请求，此时就会创建一个TCP连接；
+- Consumer收到上一步`FindCoordinator`请求的Reponse，就会创建真正与其关联的Coordinator所在的Broker的Socket连接，此时会创建第二个TCP连接；
+- Consumer在poll()数据的时候，需要为它消费的Leader Partition所在的Broker连接的TCP，此时会创建n个TCP连接；
+
+**关闭TCP连接**
+
+Consumer关闭TCP连接的方式，就是手动调用KafkaConsumer.close()方法，或者执行Kill -9，当第三类TCP连接成功创建后，Consumer就会废弃第一类TCP。对一个运行了一段时间的消费者程序来说，只会有后面两类 TCP 连接存在。
+
 # 4.主题Topic
 
 。。。wait

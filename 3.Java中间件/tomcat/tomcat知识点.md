@@ -49,18 +49,27 @@ Catalina是Tomcat的核心模块，其他模块都是为 Catalina 提供下沉�
 
 ## 1.3.工作流程
 
-Tomcat分为两大部分：HTTP服务器 + Servlet容器，HTTP服务器负责接收网络请求，Servlet容器负责管理和调度Servlet实例，所以Tomcat工作流程为：
-
-HTTP服务器监听网络请求，如果有客户端发起资源请求，它会将请求信息封装成`javax.servlet.ServletRequest`，然后调用Servlet容器的service()方法；Servlet容器根据请求的URL和Servlet映射关系，定位需要处理请求的Servlet；若该Servlet未加载，Servlet容器会创建它并调用init()方法初始化，然后调用Servlet的service()方法处理请求，最后把`javax.servlet.ServletResponse`返回给HTTP服务器；HTTP服务器再把响应返回给客户端。
+Tomcat分为两大部分：HTTP服务器 + Servlet容器，HTTP服务器负责接收网络请求，Servlet容器负责管理和调度Servlet实例。HTTP服务器监听网络请求，如果有客户端发起资源请求，它会将请求信息封装成`javax.servlet.ServletRequest`，然后调用Servlet容器的service()方法；Servlet容器根据请求的URL和Servlet映射关系，定位需要处理请求的Servlet；若该Servlet未加载，Servlet容器会创建它并调用init()方法初始化，然后调用Servlet的service()方法处理请求，最后把`javax.servlet.ServletResponse`返回给HTTP服务器；HTTP服务器再把响应返回给客户端。
 
 **Tomcat高并发设计**的总结，下面各个部分就是针对这5点的具体分析：
 
 1. I/O 和线程模型
-
 2. 减少系统调用
 3. 池化、零拷贝
 4. 高效的并发编程，尽量避免锁，或者减小锁的粒度
 5. 并发容器的使用
+
+## 1.4.源码目录
+
+tomcat源码目录，org.apache.*
+
+- catalina：Catalina是Tomcat提供的Servlet容器实现,负责处理来自客户端的请求并输出响应,里面有Server、Service、Connector、Container、Engine、Host、Context、Wrapper、Executor；
+- coyote：Tomcat链接器框架的名称,是Tomcat服务器提供的供客户端访问的外部接口,客户端通过Coyote 与Catalina容器进行通信. 我们比较熟悉的Request, Response 就是来自于Coyote模块；
+- el：Expression Language, java表达式语言, 这个对应的就是我们jsp中取值的那些
+- jasper：jsp引擎,我们可以在jsp中引入各种标签,在不重启服务器的情况下,检测jsp页面是否有更新,等等
+- juli：日志相关的
+- naming：命名空间,JNDI,用于java目录服务的API,JAVA应用可以通过JNDI API 按照命名查找数据和对象,常用的有: 1.将应用连接到一个外部服务,如数据库. 2. Servlet通过JNDI查找 WEB容器提供的配置信息
+- tomcat：附加功能,如websocket等
 
 # 2.Tomcat架构
 
@@ -260,78 +269,301 @@ Wrapper 容器的最后一个 Valve 会创建一个 Filter 链，并调用 doFil
 
 # 3.组件生命周期
 
-设计就是要找到系统的变化点和不变点。tomcat的不变点就是每个组件都要经历创建、初始化、启动这几个过程，这些状态以及状态的转化是不变的。而变化点是每个具体组件的初始化方法，也就是启动方法是不一样的。LifeCycle 接口里应该定义这么几个方法：init()、start()、stop() 和 destroy()，每个具体的组件去实现这些方法。
+架构设计就是要找到系统的变化点和不变点。Tomcat的不变点就是每个组件都要经历创建、初始化、启动和销毁这4个过程，这些状态以及状态的转化是不变的。而变化点是每个组件的生命周期方法实现不一样。基于这一考虑，Tomcat开发者，定义了Lifecycle接口。接口里定义了：init()、start()、stop() 和 destroy()，每个具体的组件去实现这些方法。
 
-## 3.1.接口
+## 3.1.Lifecycle
+
+`org.apache.catalina.Lifecycle`主要定义了Tomcat组件生命周期方法，以及增删查`org.apache.catalina.LifecycleListener`的方法，源码为
 
 ```java
 public interface Lifecycle {
-  String BEFORE_INIT_EVENT = "before_init";
-  String AFTER_INIT_EVENT = "after_init";
-  String START_EVENT = "start";
-  String BEFORE_START_EVENT = "before_start";
-  String AFTER_START_EVENT = "after_start";
-  String STOP_EVENT = "stop";
-  String BEFORE_STOP_EVENT = "before_stop";
-  String AFTER_STOP_EVENT = "after_stop";
-  String AFTER_DESTROY_EVENT = "after_destroy";
-  String BEFORE_DESTROY_EVENT = "before_destroy";
-  String PERIODIC_EVENT = "periodic";
-  String CONFIGURE_START_EVENT = "configure_start";
-  String CONFIGURE_STOP_EVENT = "configure_stop";
+  	/*
+  	 * 当期组件的监听器
+  	 */
+  	void addLifecycleListener(LifecycleListener listener);
+  	LifecycleListener[] findLifecycleListeners();
+  	void removeLifecycleListener(LifecycleListener listener);
   
-  void addLifecycleListener(LifecycleListener listener);
-  LifecycleListener[] findLifecycleListeners();
-  void removeLifecycleListener(LifecycleListener listener);
+  	// 组件被创建出来, 进行初始化时调用
+  	void init() throws LifecycleException;
   
-  void init() throws LifecycleException;
-  void start() throws LifecycleException;
-  void stop() throws LifecycleException;
-  void destroy() throws LifecycleException;
-  LifecycleState getState();
-  String getStateName();
+  	// 组件启动时, 会调用此方法
+  	void start() throws LifecycleException;
+  
+  	// 组件停止时, 会调用此方法
+  	void stop() throws LifecycleException;
+  
+  	// 组件销毁时, 会调用此方法
+  	void destroy() throws LifecycleException;
 }
 ```
 
-LifeCycleState
+其中，每个组件在一个瞬时间内，都会处于一个状态，这个状态Tomcat用`org.apache.catalina.LifecycleState`来表示，源码为：
 
 ```java
 public enum LifecycleState {
-  NEW(false, null),
-  INITIALIZING(false, Lifecycle.BEFORE_INIT_EVENT),
-  INITIALIZED(false, Lifecycle.AFTER_INIT_EVENT),
-  STARTING_PREP(false, Lifecycle.BEFORE_START_EVENT),
-  STARTING(true, Lifecycle.START_EVENT),
-  STARTED(true, Lifecycle.AFTER_START_EVENT),
-  STOPPING_PREP(true, Lifecycle.BEFORE_STOP_EVENT),
-  STOPPING(false, Lifecycle.STOP_EVENT),
-  STOPPED(false, Lifecycle.AFTER_STOP_EVENT),
-  DESTROYING(false, Lifecycle.BEFORE_DESTROY_EVENT),
-  DESTROYED(false, Lifecycle.AFTER_DESTROY_EVENT),
-  FAILED(false, null);
+  	// 创建后未初始化前, 处于这个状态
+    NEW(false, null),
+  
+  	// 依次表示：初始化中、初始化后
+    INITIALIZING(false, Lifecycle.BEFORE_INIT_EVENT),
+    INITIALIZED(false, Lifecycle.AFTER_INIT_EVENT),
+  
+  	// 依次表示：开启前、启动中、开启后
+    STARTING_PREP(false, Lifecycle.BEFORE_START_EVENT),
+    STARTING(true, Lifecycle.START_EVENT),
+    STARTED(true, Lifecycle.AFTER_START_EVENT),
+  
+  	// 依次表示：关闭前、关闭时、关闭后
+    STOPPING_PREP(true, Lifecycle.BEFORE_STOP_EVENT),
+    STOPPING(false, Lifecycle.STOP_EVENT),
+    STOPPED(false, Lifecycle.AFTER_STOP_EVENT),
+  
+  	// 依次表示：销毁前、销毁时、销毁后
+    DESTROYING(false, Lifecycle.BEFORE_DESTROY_EVENT),
+    DESTROYED(false, Lifecycle.AFTER_DESTROY_EVENT),
+    FAILED(false, null);
 
-  private final boolean available;
-  private final String lifecycleEvent;
-
-  private LifecycleState(boolean available, String lifecycleEvent) {
-    this.available = available;
-    this.lifecycleEvent = lifecycleEvent;
-  }
+  	// avaiable为true时, 表示当期组件可以被使用
+    private final boolean available;
+  	// lifecycleEvent是对 LifecycleState 的事件描述, 放在Lifecycle中
+    private final String lifecycleEvent;
 }
 ```
 
+## 3.2.LifecycleBase
 
+`org.apache.catalina.util.LifecycleBase`是`org.apache.catalina.Lifecycle`的基本实现，其实这是一种`模板设计模式`的实现，LifecycleBase实现了原先Lifecycle定义的4个生命周期方法，然后对它进行了状态判断 + 监听器回调(这些都是所有组件通用的逻辑，所以Tomcat将其放到了抽象父类中，然后再抽象父类中定义模板方法，把子类即具体组件的真正逻辑放到模板方法里面)。重要属性如下：
 
+```java
+public abstract class LifecycleBase implements Lifecycle {
+  	// 该组件的监听器集合, 用的是CopyOnWriteArrayList, 线程安全, 适用于读多写少的场景
+  	private final List<LifecycleListener> lifecycleListeners = new CopyOnWriteArrayList<>();
+  
+  	// 当前组件的状态, 加上了 volatile, 可以达到线程可见性. 同时, 每个组件一创建, 都是属于 NEW 即创建状态
+  	private volatile LifecycleState state = LifecycleState.NEW;
+}
+```
 
+此外，LifecycleBase还额外定义如下4种类型的生命周期方法：
 
 <img src="./images/tomcat-LifeCycle类UML.png" style="zoom:67%;" />
 
+- 组件初始化
 
+```java
+/**
+ * 实现自Lifecycle的init()方法
+ */
+public final synchronized void init() throws LifecycleException {
+  // 只有组件状态为 LifecycleState.NEW 时, 才能初始化
+  if (!state.equals(LifecycleState.NEW)) {
+    	invalidTransition(Lifecycle.BEFORE_INIT_EVENT);
+  }
+  try {
+      // 生命周期监听器 org.apache.catalina.LifecycleEvent, 初始化前事件回调
+      setStateInternal(LifecycleState.INITIALIZING, null, false);
+      // 子类组件真正执行初始化的逻辑
+      initInternal();
+      // 生命周期监听器 org.apache.catalina.LifecycleEvent, 初始化后事件回调
+      setStateInternal(LifecycleState.INITIALIZED, null, false);
+  } catch (Throwable t) {
+    	handleSubClassException(t, "lifecycleBase.initFail", toString());
+  }
+}
 
-tomcat注册监听器`org.apache.catalina.LifecycleListener`：
+/**
+ * 具体组件的真正初始化逻辑
+ */
+protected abstract void initInternal() throws LifecycleException;
+```
 
-- Tomcat 自定义了一些监听器，这些监听器是父组件在创建子组件的过程中注册到子组件的。比如 MemoryLeakTrackingListener 监听器，用来检测 Context 容器中的内存泄漏，这个监听器是 Host 容器在创建 Context 容器时注册到 Context 中的。
-- 还可以在 server.xml 中定义自己的监听器，Tomcat 在启动时会解析 server.xml，创建监听器并注册到容器组件。
+- 组件启动
+
+```java
+/**
+ * 实现自Lifecycle的start()方法
+ */
+public final synchronized void start() throws LifecycleException {
+	// 处理启动前、启动中、启动后这3个状态时, 表示已经启动状态, 无须再次启动, 方法返回.
+  if (LifecycleState.STARTING_PREP.equals(state) || LifecycleState.STARTING.equals(state) ||
+      LifecycleState.STARTED.equals(state)) {
+    	// ... 省略日志
+    	return;
+  }
+	
+  if (state.equals(LifecycleState.NEW)) {
+    	// 如果处于NEW即创建状态, 则执行初始化, 调用上面的init()方法
+    	init();
+  } else if (state.equals(LifecycleState.FAILED)) {
+    	// 如果处于失败状态, 调用stop()将组件停止
+    	stop();
+  } else if (!state.equals(LifecycleState.INITIALIZED) && !state.equals(LifecycleState.STOPPED)) {
+    	// 只有处于 初始化 或者 已停止 这两个状态时, 才允许启动, 其它状态抛出异常LifecycleException
+    	invalidTransition(Lifecycle.BEFORE_START_EVENT);
+  }
+
+  try {
+    	// // 生命周期监听器 org.apache.catalina.LifecycleEvent, 启动前事件回调
+      setStateInternal(LifecycleState.STARTING_PREP, null, false);
+    	// 真正启动逻辑
+      startInternal();
+    	
+      if (state.equals(LifecycleState.FAILED)) {
+        	// 如果启动失败, 组件会将自己的state改为FAILED, 此时就会回调stop()方法, 停止组件
+        	stop();
+      } else if (!state.equals(LifecycleState.STARTING)) {
+        	// 如果不处于启动中的状态, 说明子类乱设置状态, 抛出LifecycleException
+        	invalidTransition(Lifecycle.AFTER_START_EVENT);
+      } else {
+        	// 生命周期监听器 org.apache.catalina.LifecycleEvent, 启动后事件回调
+        	setStateInternal(LifecycleState.STARTED, null, false);
+      }
+  } catch (Throwable t) {
+      // This is an 'uncontrolled' failure so put the component into the
+      // FAILED state and throw an exception.
+      handleSubClassException(t, "lifecycleBase.startFail", toString());
+  }
+}
+
+/**
+ * 具体组件的真正启动逻辑
+ */
+protected abstract void startInternal() throws LifecycleException;
+```
+
+- 组件关闭
+
+```java
+/**
+ * 实现自Lifecycle的stop()方法
+ */
+public final synchronized void stop() throws LifecycleException {
+
+  // 组件已停止, 即处于 停止前、停止中、停止后 这3个状态时, 直接返回
+  if (LifecycleState.STOPPING_PREP.equals(state) || LifecycleState.STOPPING.equals(state) ||
+      LifecycleState.STOPPED.equals(state)) {
+    	// ...省略日志
+    	return;
+  }
+
+  if (state.equals(LifecycleState.NEW)) {
+    	// 组件刚创建出来, 没有初始化, 就没有创建资源, 直接修改它的状态, 然后返回
+      state = LifecycleState.STOPPED;
+      return;
+  }
+
+  if (!state.equals(LifecycleState.STARTED) && !state.equals(LifecycleState.FAILED)) {
+    	// 只有处于 启动中 || 已失败 状态的组件, 才可以停止.
+    	invalidTransition(Lifecycle.BEFORE_STOP_EVENT);
+  }
+
+  try {
+      if (state.equals(LifecycleState.FAILED)) {
+          // 如果组件是处于失败状态, 不需要过渡到STOPPING_PREP状态, 直接触发STOPPING_PREP事件回调就行了
+          fireLifecycleEvent(BEFORE_STOP_EVENT, null);
+      } else {
+          // 如果是启动中状态的组件被停止了, 那就需要过渡到STOPPING_PREP状态, 同时触发监听器回调.
+          setStateInternal(LifecycleState.STOPPING_PREP, null, false);
+      }
+      // 真正停止组件
+      stopInternal();
+
+      if (!state.equals(LifecycleState.STOPPING) && !state.equals(LifecycleState.FAILED)) {
+          // 执行停止逻辑后的组件, 只允许处于STOPPING || FAILED状态, 其它状态说明出现了乱设置状态的问题, 直接抛异常
+          invalidTransition(Lifecycle.AFTER_STOP_EVENT);
+      }
+			// 生命周期监听器 org.apache.catalina.LifecycleEvent, 停止后事件回调
+      setStateInternal(LifecycleState.STOPPED, null, false);
+  } catch (Throwable t) {
+    	handleSubClassException(t, "lifecycleBase.stopFail", toString());
+  } finally {
+      if (this instanceof Lifecycle.SingleUse) {
+        // Complete stop process first
+        setStateInternal(LifecycleState.STOPPED, null, false);
+        destroy();
+      }
+  }
+}
+
+/**
+ * 具体组件的真正停止逻辑
+ */
+protected abstract void stopInternal() throws LifecycleException;
+```
+
+- 组件销毁
+
+```java
+public final synchronized void destroy() throws LifecycleException {
+  if (LifecycleState.FAILED.equals(state)) {
+      try {
+        // 组件处于FAILED状态, 直接回调上面的stop()方法将其停止
+        stop();
+      } catch (LifecycleException e) {
+        // Just log. Still want to destroy.
+        log.error(sm.getString("lifecycleBase.destroyStopFail", toString()), e);
+      }
+  }
+
+  if (LifecycleState.DESTROYING.equals(state) || LifecycleState.DESTROYED.equals(state)) {
+    	// 已经处于销毁状态, 无需重复销毁, 直接返回
+    	// ...这里省略掉日志
+	    return;
+  }
+
+  if (!state.equals(LifecycleState.STOPPED) && !state.equals(LifecycleState.FAILED) &&
+      !state.equals(LifecycleState.NEW) && !state.equals(LifecycleState.INITIALIZED)) {
+    	// 只有处于这四种状态的组件, 才允许销毁：STOPPED、FAILED、NEW、INITIALIZED
+    	invalidTransition(Lifecycle.BEFORE_DESTROY_EVENT);
+  }
+
+  try {
+    	// 生命周期监听器 org.apache.catalina.LifecycleEvent, 销毁前事件回调
+      setStateInternal(LifecycleState.DESTROYING, null, false);
+    	// 执行真正销毁逻辑
+      destroyInternal();
+    	// 生命周期监听器 org.apache.catalina.LifecycleEvent, 销毁后事件回调
+      setStateInternal(LifecycleState.DESTROYED, null, false);
+  } catch (Throwable t) {
+    	handleSubClassException(t, "lifecycleBase.destroyFail", toString());
+  }
+}
+
+/**
+ * 具体组件的真正销毁逻辑
+ */
+protected abstract void destroyInternal() throws LifecycleException;
+```
+
+## 3.3.补充
+
+- Tomcat 自定义了一些监听器，这些监听器是父组件在创建子组件的过程中注册到子组件的。比如 MemoryLeakTrackingListener 监听器，用来检测 Context 容器中的内存泄漏，这个监听器是 Host 容器在创建 Context 容器时注册到 Context 中的；
+
+- 还可以在 server.xml 中定义自己的监听器，Tomcat 在启动时会解析 server.xml，创建监听器并注册到容器组件；
+
+- Tomcat具有`一键启停性`！其原理就是父容器调用生命周期方法时，会连带调用子容器的生命周期方法。举个例子：在Tomcat中Service包含Connector和Engine，所以它初始化的时候，会调用这两个容器的初始化
+
+  ```java
+  // 源码：org.apache.catalina.core.StandardService - 510
+  protected void initInternal() throws LifecycleException {
+      super.initInternal();
+  
+      if (engine != null) {
+        // 容器初始化, 会连带初始化子容器Host
+        engine.init();
+      }
+  
+      // ...省略部分代码
+  
+      // 初始化连接器.
+      synchronized (connectorsLock) {
+        for (Connector connector : connectors) {
+          connector.init();
+        }
+      }
+  }
+  ```
 
 # 4.连接器
 
@@ -518,8 +750,6 @@ Tomcat 线程池和 Java 原生线程池的区别，其实就是在第 3 步，T
 比如 Tomcat 和 Jetty 处理 HTTP 请求的场景就符合这个特征，请求的数量很多，为了处理单个请求需要创建不少的复杂对象（比如 Tomcat 连接器中 SocketWrapper 和 SocketProcessor），而且一般来说请求处理的时间比较短，一旦请求处理完毕，这些对象就需要被销毁，因此这个场景适合对象池技术。
 
 Tomcat 用 SynchronizedStack 类来实现对象池
-
-
 
 
 

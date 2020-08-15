@@ -6,9 +6,7 @@ Tomcat是由Apache软件基金会属下Jakarta项目开发的Servlet容器，按
 
 ## 1.1.Servlet规范
 
-Java官方的Servlet规范地址：[https://jcp.org/en/jsr/detail?id=369](https://jcp.org/en/jsr/detail?id=369)，目前最新是**Servlet 4.0 Specification**，即4.0规范支持HTTP2.0！
-
-`javax.servlet.Servlet`，是一个标准化接口，可以理解为运行在服务端的java小程序。服务器接收到请求后，确定并寻找合适的Servlet响应请求。为了让服务器与业务逻辑解耦，又定义了`Servlet Container`，即Servlet容器，由容器来创建和管理Servlet。Servlet接口和Servlet容器这一整套规范叫做Servlet规范！！！
+Java官方的Servlet规范地址：[https://jcp.org/en/jsr/detail?id=369](https://jcp.org/en/jsr/detail?id=369)，目前最新是**Servlet 4.0 Specification**，即4.0规范支持HTTP2.0！`javax.servlet.Servlet`，是一个标准化接口，可以理解为运行在服务端的java小程序。服务器接收到请求后，确定并寻找合适的Servlet响应请求。为了让服务器与业务逻辑解耦，又定义了`Servlet Container`，即Servlet容器，由容器来创建和管理Servlet。Servlet接口和Servlet容器这一整套规范叫做Servlet规范！！！
 
 ```java
 // Servlet接口源码
@@ -34,10 +32,10 @@ public interface Servlet {
 
 Tomcat有两个类结构，名字是Tomcat开发者自己取的，分别是：
 
-- Catalina(卡特琳娜?)，是Tomcat的servlet容器
-- Coyote，是Tomcat的连接器组件
+- Catalina(卡特琳娜？？)，是Tomcat的servlet容器；
+- Coyote，是Tomcat的连接器组件；
 
-Catalina是Tomcat的核心模块，其他模块都是为 Catalina 提供下沉服务的，⽐如 ： Coyote 模块提供链接通信， Jasper 模块提供 JSP引擎 ， Naming 提供 JNDI服务 ， Juli 提供⽇志服务。整个 Tomcat 就是⼀个 Catalina实例 ， Tomcat 启动的时候会初始化这个实例， Catalina实例 通过加 server.xml 完成其他实例的创建，创建并管理⼀个 Server ， Server 创建并管理多个 服务(Service) ，每个 服务(Service) ⼜可以有多个 Connector 和⼀个 Container 
+Catalina是Tomcat的核心模块，其他模块都是为 Catalina 提供下沉服务的，⽐如 ： Coyote 模块提供链接通信， Jasper 模块提供 JSP引擎 ， Naming 提供 JNDI服务 ， Juli 提供⽇志服务。整个 Tomcat 就是⼀个 Catalina实例 ， Tomcat 启动的时候会初始化这个实例， Catalina实例 通过加 server.xml 完成其它实例的创建，创建并管理⼀个 Server ， Server 创建并管理多个 服务(Service) ，每个 服务(Service) ⼜可以有多个 Connector 和⼀个 Container 
 
 **tomcat日志**
 
@@ -63,13 +61,13 @@ Tomcat分为两大部分：HTTP服务器 + Servlet容器，HTTP服务器负责�
 
 tomcat源码目录，org.apache.*
 
-- catalina：Catalina是Tomcat提供的Servlet容器实现,负责处理来自客户端的请求并输出响应,里面有Server、Service、Connector、Container、Engine、Host、Context、Wrapper、Executor；
-- coyote：Tomcat链接器框架的名称,是Tomcat服务器提供的供客户端访问的外部接口,客户端通过Coyote 与Catalina容器进行通信. 我们比较熟悉的Request, Response 就是来自于Coyote模块；
-- el：Expression Language, java表达式语言, 这个对应的就是我们jsp中取值的那些
-- jasper：jsp引擎,我们可以在jsp中引入各种标签,在不重启服务器的情况下,检测jsp页面是否有更新,等等
-- juli：日志相关的
-- naming：命名空间,JNDI,用于java目录服务的API,JAVA应用可以通过JNDI API 按照命名查找数据和对象,常用的有: 1.将应用连接到一个外部服务,如数据库. 2. Servlet通过JNDI查找 WEB容器提供的配置信息
-- tomcat：附加功能,如websocket等
+- catalina：tomcat的Servlet容器实现，负责处理客户端的请求并响应，里面有tomcat的核心组件：Server、Service、Connector、Container、Engine、Host、Context、Wrapper、Executor等，同时tomcat也是通过它启动的；
+- coyote：Tomcat连接器框架的名称，是Tomcat服务器提供的供客户端访问的外部接口，客户端通过Coyote 与Catalina容器进行通信。 里面定义tomcat支持的上层协议，还有Request, Response 就是来自于Coyote模块；
+- el：Expression Language，即EL表达式，java表达式语言，就是在JSP中用于获取值的语法；
+- jasper：jsp引擎，可以在jsp中引入各种标签，在不重启服务器的情况下，检测jsp页面是否有更新...等等
+- juli：日志相关
+- naming：命名空间，即`JNDI`用于java目录服务的API，JAVA应用可以通过JNDI API 按照命名查找数据和对象，常用的有: 1.将应用连接到一个外部服务，如数据库.；2. Servlet通过JNDI查找 WEB容器提供的配置信息
+- tomcat：工具类+附加功能，如websocket等
 
 # 2.Tomcat架构
 
@@ -173,27 +171,7 @@ tomcat支持多种协议，那么每种协议的请求信息都不一样，Adapt
 
 tomcat设计的容器具有父子关系，形成一个树形结构，它是采用组合模式来管理这些组件。所有容器组件都实现了 Container 接口，因此组合模式可以使得用户对单容器对象和组合容器对象的使用具有一致性。这里单容器对象指的是最底层的 Wrapper，组合容器对象指的是上面的 Context、Host 或者 Engine
 
-![](./images/Container类关系.png)
-
-其中Container接口的部分类定义：
-
-```java
-public interface Container extends Lifecycle {
-  String ADD_CHILD_EVENT = "addChild";
-  String ADD_VALVE_EVENT = "addValve";
-  String REMOVE_CHILD_EVENT = "removeChild";
-  String REMOVE_VALVE_EVENT = "removeValve";
-
-
-  String getName();
-  public void setName(String name);
-  public Container getParent();
-  public void setParent(Container container);
-  public void addChild(Container child);
-  public void removeChild(Container child);
-  public Container findChild(String name);
-}
-```
+![](./images/Tomcat容器核心组件类关系.png)
 
 ### 2.2.2.Mapper
 
@@ -251,7 +229,7 @@ public interface Pipeline extends Contained {
 }
 ```
 
-不同容器的 Pipeline 是怎么链式触发的呢，比如 Engine 中 Pipeline 需要调用下层容器 Host 中的 Pipeline，其实是通过getBasic()方法，它返回的Valve，处于 Valve 链表的末端，每个Pipeline 必定会有这一个 Valve，它负责调用下层容器的 Pipeline 里的第一个 Valve。Mapper组件在映射请求的时候，会在Request对象中存储相应的Host、Context等对象，这些存储的容器用来处理这个特定的请求，所以即使Engine容器下有多个Host容器，它也可以在Request对象拿到下一个要处理的Host容器：
+不同容器的 Pipeline 触发，比如 Engine 中 Pipeline 需要调用下层容器 Host 中的 Pipeline，其实是通过getBasic()方法，它返回的Valve，处于 Valve 链表的末端，每个Pipeline 必定会有这一个 Valve，它负责调用下层容器的 Pipeline 里的第一个 Valve。Mapper组件在映射请求的时候，会在Request对象中存储相应的Host、Context等对象，这些存储的容器用来处理这个特定的请求，所以即使Engine容器下有多个Host容器，它也可以在Request对象拿到下一个要处理的Host容器：
 
 <img src="./images/tomcat-Pipeline组件.jpeg" style="zoom:80%;" />
 
@@ -565,9 +543,13 @@ protected abstract void destroyInternal() throws LifecycleException;
   }
   ```
 
+## 3.4.容器启动源码
+
+tomcat启动的入口点在`org.apache.catalina.startup.Bootstrap`这个类，它有一个静态代码块和一个main()方法。静态代码块的作用就是确定`catalina.home`的文件目录，就是tomcat存放配置文件的目录；main()方法的作用会创建Catalina实例，通过它创建出各个Tomcat组件，然后启动。
+
 # 4.连接器
 
-tomcat支持多种IO模型
+之前讲过Tomcat支持3种不同的I/O模型：nio、aio、apr。nio和aio比较熟悉，主要是apr，apr全称Apache Portable Runtime/Apache可移植运行时库，Tomcat将以JNI的形式调用Apache HTTP服务器的核心动态链接库来处理文件读取或网络传输操作，从而大大地提高Tomcat对静态文件的处理性能。**从操作系统级别来解决异步的IO问题,大幅度的提高性能。** Tomcat apr也是在Tomcat上运行高并发应用的首选模式。要让Tomcat以apr模式来运行，必须安装apr和native
 
 ## 4.1.NioEndpoint
 

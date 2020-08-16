@@ -166,15 +166,44 @@ kafka的重平衡，是一个经常出现问题的技术点，它其实就是：
 
 - **主题分区数发生变更**。Kafka 当前只能允许增加一个主题的分区数。当分区数增加时，就会触发订阅该主题的所有 Group 开启 Rebalance。
 
-### 3.2.2重平衡策略
+### 3.2.2.重平衡策略
 
-kafka提供的重平衡策略主要有三种：`Round Robin`，`Range`、`Sticky`，默认使用的是`Range`。这三种分配策略的主要区别在于：
+重平衡策略，也称为分区分配策略，在kafka消费者刚启动和运行时发生重平衡，都会触发消费者重新分配分区。kafka提供了消费者客户端参数`partition.assignment.strategy`用来设置消费者与订阅主题之间的分配策略，主要有三种：`Round Robin`，`Range`、`Sticky`，默认使用的是`Range`。这三种分配策略的主要区别在于：
 
 - `Round Robin`：会采用轮询的方式将当前所有的分区依次分配给所有的consumer；
+
+RoundRobinAssignor：将消费组内所有消费者以及消费者所订阅的所有topic按照partition按照字典序排序，然后通过轮询方式组个将分区依次分配给每个消费者。
+
+假设消费组中有2个消费者C0和C1，都订阅了主题t0和t1，并且每个主题都有3个分区，那么所订阅的所有分区可以标识为：t0p0，t0p1，t0p2，t1p0，t1p1，t1p2。最终的分配结果
+
+```tex
+消费者C0：t0p0，t0p2，t1p1
+消费者C1：t0p1，t1p0，t1p2
+```
+
+但是同一个消费组内的消费者所订阅的信息是不同的，就会出现分配不均匀的现象，如果某个消费者没有订阅消费组内的某个topic，那么在分配分区的时候此消费者将分配不到这个topic的任何分区。例如：某个消费组内的有3个消费者C0、C1和C2，消费组订阅了t0、t1和t2，这3个主题分别有1、2、3个分区，即整个消费组订阅了t0p0、t1p0、t1p1、t2p0、t2p1、t2p3共6个分区。而且，消费者C0订阅的是t0主题，C1订阅t0和t1主题，C2订阅t0、t1和t2，那么最终结果为：
+
+```tex
+消费者C0：t0p0
+消费者C1：t1p0
+消费者C2：t1p1、t2p0、t2p1、t2p2
+```
+
+其实可以把分区t1p1分配给C1消费，减轻C2的压力
+
 - `Range`：首先会计算每个consumer可以消费的分区个数，然后按照顺序将指定个数范围的分区分配给各个consumer；
-- `Sticky`：这种分区策略是最新版本中新增的一种策略，其主要实现了两个目的：
+
+RangeAssignor：按照消费者总数和分区总数进行整除运算来获得一个跨度，然后将分区按照跨度进行平均分配。对于每一个topic，RangeAssignor策略会将消费组内所有订阅这个topic的消费者按照名字的字典序排序，然后为每个消费者划分固定的分区范围，如果不够平均分配，那么字典序靠前的消费者会多分配一个分区。
+
+假设n=分区数/消费者数，m=分区数%消费者数，那么前m个消费者每个分配n+1个分区，后面的（消费者数量-m）个消费者每个分配n个分区
+
+- `Sticky`：这种分区策略是从kafka 0.11x版本开始引入，其主要实现了两个目的：
   - 将现有的分区尽可能均衡的分配给各个consumer，存在此目的的原因在于`Round Robin`和`Range`分配策略实际上都会导致某几个consumer承载过多的分区，从而导致消费压力不均衡；
   - 如果发生再平衡，那么重新分配之后在前一点的基础上会尽力保证当前未宕机的consumer所消费的分区不会被分配给其他的consumer上；
+
+如果上面两者发生冲突，第一个目标优先于第二个目标
+
+
 
 ### 3.2.3.避免重平衡
 
@@ -216,69 +245,71 @@ max.poll.interval.ms=***
 
 ## 3.4.TCP连接管理
 
+### 3.4.1.建立连接
+
 Kafka Consumer，并不会像Kafka Producer一样，在实例化的时候就发起TCP连接，而是在调用KafkaConsumer.poll()方法时创建的。但是，poll()方法实际干的事情很多，有3个情况会创建TCP连接：
 
 - 发起`FindCoordinator`请求。Consumer程序刚启动，必须知道它所在的Group对应的Coordinator是哪个。默认Consumer会向kafka集群中负载最小的Broker发送请求，此时就会创建一个TCP连接；
 - Consumer收到上一步`FindCoordinator`请求的Reponse，就会创建真正与其关联的Coordinator所在的Broker的Socket连接，此时会创建第二个TCP连接；
 - Consumer在poll()数据的时候，需要为它消费的Leader Partition所在的Broker连接的TCP，此时会创建n个TCP连接；
 
-**关闭TCP连接**
+### 3.4.2.关闭连接
 
 Consumer关闭TCP连接的方式，就是手动调用KafkaConsumer.close()方法，或者执行Kill -9，当第三类TCP连接成功创建后，Consumer就会废弃第一类TCP。对一个运行了一段时间的消费者程序来说，只会有后面两类 TCP 连接存在。
 
-# 4.主题Topic
+# 4.服务端Broker
 
-。。。wait
+## 4.1.I/O模型
 
-# 5.分区Partition
+不管是Broker与Producer、Consumer之间，还是Broker与Broker之间，都是使用TCP协议进行网络通讯的。kafka使用的还是常见的Reactor模型（说明了什么？技术是互通的，学精可以举一反三！！）
 
-kafka将主题划分为多个分区（partition），会根据分区规则选择把消息存储到哪个分区中。如果分区规则设置的合理，那么所有的消息将会被均匀地分布到不同的分区中，这样就实现了负载均衡和水平扩展。另外，多个订阅者可以从一个或者多个分区中同时消费数据，以支撑海量数据处理能力。注：由于消息时以追加到分区中，多个分区顺序写磁盘的总效率比随机写内存还要高，是kafka高吞吐量的重要保障之一
+kafka在处理网络通讯，使用了2种线程池：
 
-## 5.1.副本机制
+- **网络线程池**：负责将请求放入到共享请求队列，并维护自己的响应队列，将Response发给对端。线程池数量由Broker端参数`num.network.threads`指定，默认为3；
+- **I/O线程池**：负责从共享请求队列中取出请求，是真正执行请求逻辑的线程，请求处理成功后将Response写入到指定网络线程的响应队列中。线程池数量由Broker端参数`num.io.threads`指定，默认为8；
 
-Kafka 0.8 以后，提供了 HA 机制，就是 replica（复制品） 副本机制。一个主题可以有多个分区，例如下图，红色部分：topic1-part0、topic1-part1、topic1-part2，表示主题topic1分为了3个分区；同时每个分区都有2个副本（绿色部分），这些副本保存在不同的broker上（分区和它的副本最好不要保存在同一个节点上），在一个broker出错时，leader在这台broker上的分区会变得不可用，kafka会自动移除leader，再从其它副本中选一个作为新的leader。
+注意：<u>请求队列是所有网络线程共享的，而响应队列则是每个网络线程专属的</u>
+
+![](./images/kafka请求处理模型.png)
+
+Broker 端有个 SocketServer 组件，包含一个Acceptor和一个网络线程池，一个请求处理流程如下：
+
+1. Acceptor会与对端建立Socket连接，然后采用轮询的方式将入站请求公平地发到所有网络线程中；
+2. 网络线程收到请求后，会放入到一个共享请求队列中；
+3. I/O线程会从共享请求队列中取出请求，若是RODUCE 生产请求，则将消息写入到底层的磁盘日志中；如果是 FETCH 请求，则从磁盘或页缓存中读取消息；
+4. I/O线程若发现当前请求属于延时请求（即未满足条件不能立刻处理的请求。比如设置了 acks=all 的 PRODUCE 请求），它就会将请求暂存在 Purgatory 中；
+5.  IO 线程处理完请求后，会将生成的响应发送到网络线程池的响应队列中，然后由对应的网络线程负责将 Response 返还给客户端；
+
+Kafka客户端发送的 PRODUCE 请求和 FETCH 请求，这类请求称为`数据类请求`。但其实，kafka内部还有很多执行其他操作的请求类型，比如负责更新 Leader 副本、Follower 副本以及 ISR 集合的 LeaderAndIsr 请求，负责勒令副本下线的 StopReplica 请求，这类请求称为`控制类请求`。控制类请求可以让数据类请求失效，所以kafka在2.3 版本正式实现了数据类请求和控制类请求的分离，实现原理就是：基于网络线程池和 IO 线程池，它们分别处理数据类请求和控制类请求。它们需要使用不同的Socket 端口，我们需要提供不同的**listeners 配置**，显式地指定哪套端口用于处理哪类请求。
+
+## 4.2.副本机制
+
+Kafka 0.8 以后，提供了 HA 机制，就是 replica（复制品） 副本机制，将一个Topic中的消息分到若干个Partition存储，以实现负载均衡和水平扩展。例如：红色部分：topic1-part0、topic1-part1、topic1-part2，表示主题topic1分为了3个分区；同时每个分区都有2个副本（绿色部分），这些副本保存在不同的broker上（分区和它的副本最好不要保存在同一个节点上），在一个broker出错时，leader在这台broker上的分区会变得不可用，kafka会自动移除leader，再从其它副本中选一个作为新的leader。
 
 ![](./images/kafka副本机制.png)
 
-## 5.2.分区分配策略
+### 4.2.1.设计意图
 
-kafka默认的消费逻辑设定，一个分区只能被同一个消费组内的一个消费者消费，如果消费者过多，出现了消费者的数量大于分区的数量，那么就会有消费者分配不到任何分区 。kafka提供了消费者客户端参数partition.assignment.strategy用来设置消费者与订阅主题之间的分配策略，默认情况下，此参数的值为`org.apache.kafka.clients.consumer.RangeAssignor`。kafka还提供了另外两种分配策略：`org.apache.kafka.clients.consumer.RoundRobinAssignor`和`org.apache.kafka.clients.consumer.StickyAssignor`。kafka允许这只多个分配策略，彼此之间用逗号分隔
+kafka的分区副本机制，目的比较简单，就是为了做数据冗余。而在分布式系统，如何保证副本的数据一致性？其中一个优秀的解决方案就是：**基于领导者（Leader-based）的副本机制**。当然Kafka也是采取了这一方案，一个Partition的副本分为两种角色：领导者副本（Leader Replica）和追随者副本（Follower Replica），Follower是不对外提供服务的，所有的读写请求，都只能由Leader执行，Follower只负责从Leader中**异步拉取**消息，写入自己的提交日志中，实现与Leader的数据同步。
 
-### 5.2.1.RangeAssignor
+这一设计的用意主要有俩：
 
-RangeAssignor策略的原理是按照消费者总数和分区总数进行整除运算来获得一个跨度，然后将分区按照跨度进行平均分配。对于每一个topic，RangeAssignor策略会将消费组内所有订阅这个topic的消费者按照名字的字典序排序，然后为每个消费者划分固定的分区范围，如果不够平均分配，那么字典序靠前的消费者会多分配一个分区。
+- 其一，便于实现`Read-your-writes`，就好比写完博客，需要立刻看到，这就是典型的 Read-your-writes 场景。如果kafka的Follower对外提供服务，由于是异步拉取，会有时延，有时候就会看不到内容；
+- 其二，便于实现`单调读（Monotonic Reads）`，对于一个消费者而言，在多次消费消息时，它不会看到某条消息一会儿存在一会儿不存在（因为不同副本之间的数据同步具有差异性）
 
-假设n=分区数/消费者数，m=分区数%消费者数，那么前m个消费者每个分配n+1个分区，后面的（消费者数量-m）个消费者每个分配n个分区
+### 4.2.2.崩溃选举
 
-### 5.2.2.RoundRobinAssignor
+当Leader Replica崩溃时，kafka会从多个Follower Replica选出新的Leader，那么它是如何选择哪一个Follower作为新的Leader呢？首先有一个概念：In-sync Replicas（ISR），如果Follwoer与Leader之间的数据是同步的，这些Follower组成的集合就称为ISR集合，它是一个动态调整集合，Follower符合条件就会加入ISR，相反地，不符合条件就会被踢出。
 
-RoundRobinAssignor策略的原理是将消费组内所有消费者以及消费者所订阅的所有topic按照partition按照字典序排序，然后通过轮询方式组个将分区依次分配给每个消费者。
+kafka是通过Broker参数`replica.lag.time.max.ms`，来判断一个Follower是否可以被加入到ISR集合。该参数表示Follower 副本能够落后 Leader 副本的最长时间间隔，默认值为10s。只要一个 Follower 副本落后 Leader 副本的时间不连续超过 10 秒，那么 Kafka 就认为该 Follower 副本与 Leader 是同步的，即使此时 Follower 副本中保存的消息明显少于 Leader 副本中的消息。
 
-假设消费组中有2个消费者C0和C1，都订阅了主题t0和t1，并且每个主题都有3个分区，那么所订阅的所有分区可以标识为：t0p0，t0p1，t0p2，t1p0，t1p1，t1p2。最终的分配结果
+但是，有一种情况，那就是一个Partition内的ISR副本为空（注意Leader本身就属于ISR副本，如果Leader挂了，那ISR就为空），那么此时kafka就没办法选择Follower出来选举，因此就会拒绝服务，失去高可用性。此时，只要选举不在ISR中的Follower，选举这种副本的过程称为 Unclean 领导者选举。Broker 端参数 `unclean.leader.election.enable `控制是否允许 Unclean 领导者选举。当然这种方式，会牺牲数据一致性，来保证高可用性
 
-```tex
-消费者C0：t0p0，t0p2，t1p1
-消费者C1：t0p1，t1p0，t1p2
-```
+## 4.3.控制器
 
-但是同一个消费组内的消费者所订阅的信息是不同的，就会出现分配不均匀的现象，如果某个消费者没有订阅消费组内的某个topic，那么在分配分区的时候此消费者将分配不到这个topic的任何分区。例如：某个消费组内的有3个消费者C0、C1和C2，消费组订阅了t0、t1和t2，这3个主题分别有1、2、3个分区，即整个消费组订阅了t0p0、t1p0、t1p1、t2p0、t2p1、t2p3共6个分区。而且，消费者C0订阅的是t0主题，C1订阅t0和t1主题，C2订阅t0、t1和t2，那么最终结果为：
 
-```tex
-消费者C0：t0p0
-消费者C1：t1p0
-消费者C2：t1p1、t2p0、t2p1、t2p2
-```
 
-其实可以吧分区t1p1分配给C1消费，减轻C2的研力
 
-### 5.2.3.StickyAssignor
-
-StickyAssignor策略是从kafka 0.11x版本开始引入，它有两个目的：
-
-- 分区的分配要尽可能地均匀
-- 分区的分配要尽可能的与上次分配的保持相同
-
-如果上面两者发生冲突，第一个目标优先于第二个目标
 
 # 6.存储结构
 

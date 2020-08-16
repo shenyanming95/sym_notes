@@ -215,7 +215,7 @@ Producer<String, String> producer = new KafkaProducer<>(props);
 - Producer 程序运行机器上的 CPU 资源要很充足，只有CPU资源很充足，才能资源去进行压缩。如果原本CPU已经消耗殆尽，此时再启动消息压缩，会加重CPU资源的消耗，影响正常的功能。
 - 如果网络环境中带宽资源有限，最好还是开启压缩，可以减少带宽
 
-## *.其它配置
+## \*.*.其它配置
 
 - acks
 

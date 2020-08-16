@@ -1,8 +1,13 @@
 # 1.zookeeper简介
 
-Zookeeper是一个开源的为分布式应用提供协调服务的Apache项目，它是一个典型的分布式数据一致性的解决方案。从设计模式的角度看，zookeeper采取的是“观察者模式”：它负责存储和管理数据，然后接受观察者的注册，一旦这些数据的状态发生变化，zookeeper负责通知已经在zookeeper上注册的观察者们
+Zookeeper是一个开源的为分布式应用提供协调服务的Apache项目，它是一个典型的分布式数据一致性的解决方案。从设计模式的角度看，zookeeper采取的是“观察者模式”：它负责存储和管理数据，然后接受观察者的注册，一旦这些数据的状态发生变化，zookeeper负责通知已经在zookeeper上注册的观察者们；
 
-## 1.1.特点
+zookeeper采用了类似文件系统的数据模型，即层次模型。zookeeper通过一个唯一的路径来确定一个数据。总所周知，层次模型和key-value是两种主流的数据模型。为啥zk会选择层次模型，原因有二：
+
+1. 数据之间有层次关系
+2. 便于给不同应用之间分配独立的命名空间
+
+Zookeeper集群环境如下图所示，由多个zookeeper实例组成一个zk集群，其中有且仅有一个Leader节点，负责执行写请求和调度Follower节点。客户端可以跟任意一个zookeeper实例连接，获取服务。zookeeper是具备强一致性的，在一定时间范围内，client能获取到最新数据
 
 ![](./images/zookeeper特点.png)
 
@@ -16,17 +21,26 @@ Zookeeper是一个开源的为分布式应用提供协调服务的Apache项目�
 
 5. 数据更新原子性，一次数据更新要么成功，要么失败
 
-6. 实时性：在一定时间范围内，client能获取到最新数据
+
+**zookeeper具有以下分布式特点：**
+
+- **顺序一致性**：同一个客户端发起的事务请求，最终将会严格地按照其发起顺序被应用到zk；
+
+- **原子性**：所有事务请求的处理结果在整个集群中所有机器上的应用情况是一致的，也就是说，要么整个集群所有机器都成功应用了某一个事务，要么都没有应用，一定不会出现集群中部分机器应用了事务，而另外一部分没有应用的情况；
+
+- **单一视图**：无论客户端连接的是哪个zk服务器，其看到的服务端数据模型是一致的；
+- **可靠性**：一旦服务端成功地应用了一个事务，并完成对客户端的响应，那么该事务所引起的服务端状态变更会一直保留下来，除非有另一个事务对齐进行了变更；
+- **实时性**：zk的实时性具有一定的延迟性，仅仅保证在一定的时间段内，客户端最终一定能够从服务端上读取到最新的数据状态；
 
 ## 1.2.基本概念
 
-### 1.2.1.集群角色
+### 1.2.1.zk集群角色
 
-Leader：为客户端提供读和写服务
+- Leader：为客户端提供读和写服务
 
-Follower：提供读服务，参与选举和“过半写成功”策略
+- Follower：提供读服务，参与选举和“过半写成功”策略
 
-Observer：提供读服务，不参与选择和“过半写成功”策略
+- Observer：提供读服务，不参与选择和“过半写成功”策略
 
 ### 1.2.2.会话(Session)
 
@@ -107,19 +121,13 @@ Access Control Lists，zookeeper采用ACL策略进行权限控制，并定义了
 
 5. admin：设置ACL的权限
 
-## 1.3.分布式特性
-
-- **顺序一致性**：同一个客户端发起的事务请求，最终将会严格地按照其发起顺序被应用到zk；
-
-- **原子性**：所有事务请求的处理结果在整个集群中所有机器上的应用情况是一致的，也就是说，要么整个集群所有机器都成功应用了某一个事务，要么都没有应用，一定不会出现集群中部分机器应用了事务，而另外一部分没有应用的情况；
-
-- **单一视图**：无论客户端连接的是哪个zk服务器，其看到的服务端数据模型是一致的；
-- **可靠性**：一旦服务端成功地应用了一个事务，并完成对客户端的响应，那么该事务所引起的服务端状态变更会一直保留下来，除非有另一个事务对齐进行了变更；
-- **实时性**：zk的实时性具有一定的延迟性，仅仅保证在一定的时间段内，客户端最终一定能够从服务端上读取到最新的数据状态；
-
 ## 1.4.应用场景
 
-zookeeper的应用场景丰富多彩，诸如：数据发布/订阅、分布式协调/通知、Master选举、负载均衡、分布式锁、分布式队列、统一命名服务、统一配置管理、统一集群管理和软负载均衡等。下面是具体运用场景的例子
+zookeeper的应用场景丰富多彩，诸如：数据发布/订阅、分布式协调/通知、Master选举、负载均衡、分布式锁、分布式队列、统一命名服务、统一配置管理、统一集群管理和软负载均衡等。下面是具体运用场景的例子。
+
+- Hadoop：使用Zookeeper做Namenode的高可用；
+- HBase：保证集群只有一个master，保存集群中的RegionServer列表，保存hbase:meta表的位置；
+- Kafka：集群成员管理，controoler节点选举
 
 ### 1.4.1.统一命名服务
 
@@ -149,9 +157,9 @@ zookeeper的应用场景丰富多彩，诸如：数据发布/订阅、分布式�
 
 ![](./images/软负载均衡例子.png)
 
-# 2.分布式一致性协议
+# 2.一致性协议
 
-分布式一致性，distributed Consensus，为了解决分布式环境中节点之间的数据一致性，在探索当中衍生多个优秀的协议，诸如2PC、3PC、Paxos协议、Raft协议以及zookeeper专用的ZAB协议
+分布式一致性（distributed Consensus）为了解决分布式环境中节点之间的数据一致性，衍生多个优秀的协议，诸如2PC、3PC、Paxos协议、Raft协议以及zookeeper专用的ZAB协议
 
 ## 2.1.Paxos
 
@@ -162,6 +170,10 @@ Paxos算法是一种基于**消息传递**(分布式系统中的节点通信存�
 2. Acceptor：相当于议会，接收Proposer的法案，进行投票；
 
 3. Learner：既不发起法案也不参与投票，相当于会议的记录员。
+
+![](./images/paxos时序图.png)
+
+所以，也就是说，使用Paxos协议的分布式系统，在更改数据时候，都需要经过上面的一整套逻辑，完成每个操作需要至少两轮的消息交换 ，数据才能算更改成功，虽然严瑾了，但是系统的复杂性和可用性就降低了
 
 ### 2.1.1.第一阶段
 
@@ -177,7 +189,7 @@ Paxos算法是一种基于**消息传递**(分布式系统中的节点通信存�
 
 ## 2.2.Raft
 
-Raft是从paxos衍生出来的，它减少了paxos难以理解且难以实现的算法思想，raft算法中集群的节点有3种状态：
+Raft是从paxos衍生出来的，它减少了paxos难以理解且难以实现的算法思想，目前是比较主流、使用广泛的共识算法，新的协同服务平台 etcd 和 Consul 都是使用的Raft算法，该算法中集群的节点有3种状态：
 
 | **状态**  | **作用**                                                     |
 | --------- | ------------------------------------------------------------ |
@@ -185,7 +197,7 @@ Raft是从paxos衍生出来的，它减少了paxos难以理解且难以实现的
 | Candidate | Leader选举过程中的临时角色                                   |
 | Leader    | 接受客户端请求，并向Follower同步请求日志，当日志同步到大多数节点上后告诉Follower提交日志 |
 
-### 2.2.1.选举阶段
+### 2.2.1.leader选举阶段
 
 在一个Raft协议的集群中，所有的节点一开始都是处于follower状态，当它们在一段时间后没有收到leader节点发来的心跳包，就会转变为Candidate状态，这个时间段叫做election timeout(选举超时时间)，每个节点的选举超时时间被随机分配在150毫秒至300毫秒之间，选举超时时间越小的节点，就越快转变为一个Candidate节点，然后就会向集群中的其它节点发起投票请求，支持它成为新的leader，如下图所示：
 
@@ -222,6 +234,23 @@ leader提交好数据后，它就会在发起一个请求，通知各个follower
 zookeeper并没有采用paxos协议，而是使用了一种叫做Zookeeper Atomic Broadcast（zookeeper原子消息广播协议）的强一致性算法，它的原理其实和[Raft协议](#2.2.Raft)很相似，只不过一些概念不同罢了，它是专门为Zookeeper设计的支持崩溃恢复的原子消息广播算法。ZAB协议分为两个模式：崩溃恢复和消息广播，整个zookeeper集群就是在这两个模式下相互切换，协议的大致内容如下：
 
 ![](./images/ZAB协议大致内容.png)
+
+### 2.3.1.Leader选举
+
+搭建zookeeper集群时，会配置其它zookeeper实例的主机地址和端口号，当服务启动后，会与其它zk实例建立连接，然后进行Leader选举：
+
+1. 因为会为每个zookeeper实例配置一个myid，集群启动时，每个zk实例会以[myid, ZXID]的格式向其它实例发出投票信息。由于刚启动ZXID为0，所以投票大部分为(1,0)、(2,0)，取决于你配置的myid大小（也称sid）；
+
+2. 集群的每个zk实例收到投票后，首先判断该投票的有效性，如检查是否是本轮投票、是否来自LOOKING状态的服务器。
+
+3. 投票PK：集群中的zk实例会拿自己的投票跟它获取到其它投票信息进行PK，规则为：
+
+   - 先比较ZXID，ZXID比较大的实例优先作为Leader；
+   - ZXID一样，比较myid，myid较大的服务器作为Leader服务器；
+
+   如果zk实例发现外部的投票信息比自己的投票信息大（启动时肯定是myid大），它就会更改自己的投票，选择myid较大的实例，然后重新将投票发给其它实例；如果发现外部投票都比自己的投票小，那就不更新投票内容，再次向集群中所有实例发出上一次投票信息即可
+
+4. 收到投票后，zk实例会统计票数，如果收到来自半数以上的投票信息，zk实例就会更新自己的状态为Leader，而其它实例主动称为Follower
 
 ### 2.3.1.消息广播
 
@@ -495,26 +524,86 @@ zookeeper集群的选举过程其实就是各个服务器比比较ZXID和SID的�
 3. 经过第二次的投票后，集群中的每个zookeeper节点会收到其它节点的投票，然后开始统计投票。若一台机器收到了超过半数的投票，那么这个投票对应的SID机器就成为了Leader，很明显，节点①会成为此次选举过程的Leader，就会成为新一轮的节点；
 4. 如果此时节点②和⑤重启成功，由于有新的Leader被选举出来，所以它们会作为Follower与①同步数据。
 
-# *.zookeeper配置
+# 4.zookeeper存储结构
 
-Zookeeper中的配置文件zoo.cfg中参数含义解读如下：
+zookeeper采用的是内存 + AWL的本地存储方案，其中AWL在zookeeper中被称为事务日志(transcation log)
 
-- tickTime=2000
+## 4.1.核心接口
 
-通信心跳数，Zookeeper服务器与客户端心跳时间，单位毫秒；也就是每个tickTime时间就会发送一个心跳，时间单位为毫秒。它用于心跳机制，并且设置最小的session超时时间为两倍心跳时间。(session的最小超时时间是2*tickTime)
+![](./images/zookeeper本地存储的类关系.png)
 
-- initLimit =10：
+- TxnLog：接口类型，提供读写事务日志的API
+- FileTxnLog：基于文件的 TxnLog 实现
+- Snapshot：快照接口类型，提供序列化、反序列化、访问快照的 API
+- FileSnap：基于文件的 Snapsho 实现。
+- FileTxnSnapLog：TxnLog和 SnapSho t的封装。
+- DataTree：ZooKeeper 的内存数据结构，是有所有 znode 构成的树。
+- DataNode：表示一个 znode  
 
-LF初始通信时限。集群中的Follower跟随者服务器与Leader领导者服务器之间初始连接时能容忍的最多心跳数（tickTime的数量），用它来限定集群中的Zookeeper服务器连接到Leader的时限
+其中处于内存的DataTree可以序列化成FileSnap，而FileSnap也可以反序列成DataTree
 
-- syncLimit =5
+# 5.zookeeper网络通信
 
-③syncLimit =5
+## 5.1.数据报文
 
-LF同步通信时限。集群中Leader与Follower之间的最大响应时间单位，假如响应超过syncLimit * tickTime，Leader认为Follwer死掉，从服务器列表中删除Follwer
+zookeeper的数据包大体上分为两部分，即【len】【data】，其中len是一个整型数据，它表示data的长度。
 
-- dataDir：数据文件目录+数据持久化路径，主要用于保存zk中的数据
+- 请求报文，len表示后面报文的长度，data分为请求头RequestHeader和请求体Request，请求头中有两个属性，其中xid表示客户端发请求的序号，用于保证请求的FIFO；type指出后面请求体Request的类型。
 
-④dataDir：数据文件目录+数据持久化路径，主要用于保存zk中的数据
+![](./images/request请求数据报文.png)
 
-- clientPort =2181：客户端连接端口，监听客户端连接的端口。
+- 响应报文，len表示后面报文的长度，data分为响应头ReplyHeader和响应体Response。响应头内有3个属性，其中xid对应请求报文请求头RequestHeader中的xid；zxid是zookeeper集群最新的事务id；err是错误码，表示请求的处理结果
+
+![](./images/response响应数据报文.png)
+
+## 5.2.核心接口
+
+zookeeper支持两种事件驱动编程模型，一种是Java NIO，一种是Netty。客户端的核心接口和类如下：  
+
+- ZooKeeper：用户使用的ZooKeeper客户端库核心类；
+- ClientCnxn：负责和多个ZooKeeper节点的一个建立网络连接，包含ZooKeeper RPC的处理逻辑；
+- ClientCnxnSocket：网络通信的high level逻辑；
+- ClientCnxnSocketNetty：实际进行TCP socket的网络通信 ；
+- StaticHostProvider：提供一个ZooKeeper节点列表；
+
+其中，zookeeper通信的数据结构称为Packet，结构如下：
+
+```java
+static class Packet {
+    RequestHeader requestHeader;
+    
+    ReplyHeader replyHeader;
+
+    Record request;
+
+    Record response;
+
+    ByteBuffer bb;
+
+    /** Client's view of the path (may differ due to chroot) **/
+    String clientPath;
+    /** Servers's view of the path (may differ due to chroot) **/
+    String serverPath;
+
+    boolean finished;
+
+    AsyncCallback cb;
+
+    Object ctx;
+
+    WatchRegistration watchRegistration;
+
+    public boolean readOnly;
+}
+```
+
+有2个比较核心的队列：
+
+- pendingQueue：等待响应的Packet，已经收到响应的请求从pendingQueue出队
+- outgoingQueue：收到响应的Packet
+
+客户端还会启动2个线程：
+
+- SendThread负责把ongoingQueue里面的packet出队写入到socket，同时把packet入队到pendingQueue ；
+
+- EventThread调用从waitingEvents里面出队的Packet的callback  ；

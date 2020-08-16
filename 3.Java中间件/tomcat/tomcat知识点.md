@@ -334,20 +334,20 @@ public abstract class LifecycleBase implements Lifecycle {
  * 实现自Lifecycle的init()方法
  */
 public final synchronized void init() throws LifecycleException {
-  // 只有组件状态为 LifecycleState.NEW 时, 才能初始化
-  if (!state.equals(LifecycleState.NEW)) {
-    	invalidTransition(Lifecycle.BEFORE_INIT_EVENT);
-  }
-  try {
-      // 生命周期监听器 org.apache.catalina.LifecycleEvent, 初始化前事件回调
-      setStateInternal(LifecycleState.INITIALIZING, null, false);
-      // 子类组件真正执行初始化的逻辑
-      initInternal();
-      // 生命周期监听器 org.apache.catalina.LifecycleEvent, 初始化后事件回调
-      setStateInternal(LifecycleState.INITIALIZED, null, false);
-  } catch (Throwable t) {
-    	handleSubClassException(t, "lifecycleBase.initFail", toString());
-  }
+    // 只有组件状态为 LifecycleState.NEW 时, 才能初始化
+    if (!state.equals(LifecycleState.NEW)) {
+        invalidTransition(Lifecycle.BEFORE_INIT_EVENT);
+    }
+    try {
+        // 生命周期监听器 org.apache.catalina.LifecycleEvent, 初始化前事件回调
+        setStateInternal(LifecycleState.INITIALIZING, null, false);
+        // 子类组件真正执行初始化的逻辑
+        initInternal();
+        // 生命周期监听器 org.apache.catalina.LifecycleEvent, 初始化后事件回调
+        setStateInternal(LifecycleState.INITIALIZED, null, false);
+    } catch (Throwable t) {
+        handleSubClassException(t, "lifecycleBase.initFail", toString());
+    }
 }
 
 /**
@@ -363,45 +363,48 @@ protected abstract void initInternal() throws LifecycleException;
  * 实现自Lifecycle的start()方法
  */
 public final synchronized void start() throws LifecycleException {
-	// 处理启动前、启动中、启动后这3个状态时, 表示已经启动状态, 无须再次启动, 方法返回.
-  if (LifecycleState.STARTING_PREP.equals(state) || LifecycleState.STARTING.equals(state) ||
-      LifecycleState.STARTED.equals(state)) {
-    	// ... 省略日志
-    	return;
-  }
-	
-  if (state.equals(LifecycleState.NEW)) {
-    	// 如果处于NEW即创建状态, 则执行初始化, 调用上面的init()方法
-    	init();
-  } else if (state.equals(LifecycleState.FAILED)) {
-    	// 如果处于失败状态, 调用stop()将组件停止
-    	stop();
-  } else if (!state.equals(LifecycleState.INITIALIZED) && !state.equals(LifecycleState.STOPPED)) {
-    	// 只有处于 初始化 或者 已停止 这两个状态时, 才允许启动, 其它状态抛出异常LifecycleException
-    	invalidTransition(Lifecycle.BEFORE_START_EVENT);
-  }
+    // 处理启动前、启动中、启动后这3个状态时, 表示已经启动状态, 无须再次启动, 方法返回.
+    if (LifecycleState.STARTING_PREP.equals(state) || 
+        LifecycleState.STARTING.equals(state) ||
+        LifecycleState.STARTED.equals(state)) {
+        // ... 省略日志
+        return;
+    }
 
-  try {
-    	// // 生命周期监听器 org.apache.catalina.LifecycleEvent, 启动前事件回调
-      setStateInternal(LifecycleState.STARTING_PREP, null, false);
-    	// 真正启动逻辑
-      startInternal();
-    	
-      if (state.equals(LifecycleState.FAILED)) {
-        	// 如果启动失败, 组件会将自己的state改为FAILED, 此时就会回调stop()方法, 停止组件
-        	stop();
-      } else if (!state.equals(LifecycleState.STARTING)) {
-        	// 如果不处于启动中的状态, 说明子类乱设置状态, 抛出LifecycleException
-        	invalidTransition(Lifecycle.AFTER_START_EVENT);
-      } else {
-        	// 生命周期监听器 org.apache.catalina.LifecycleEvent, 启动后事件回调
-        	setStateInternal(LifecycleState.STARTED, null, false);
-      }
-  } catch (Throwable t) {
-      // This is an 'uncontrolled' failure so put the component into the
-      // FAILED state and throw an exception.
-      handleSubClassException(t, "lifecycleBase.startFail", toString());
-  }
+    if (state.equals(LifecycleState.NEW)) {
+        // 如果处于NEW即创建状态, 则执行初始化, 调用上面的init()方法
+        init();
+    } else if (state.equals(LifecycleState.FAILED)) {
+        // 如果处于失败状态, 调用stop()将组件停止
+        stop();
+    } else if (!state.equals(LifecycleState.INITIALIZED) && 
+               !state.equals(LifecycleState.STOPPED)) {
+        // 只有处于 初始化 或者 已停止 这两个状态时, 才允许启动, 其它状态抛出异常
+        // LifecycleException
+        invalidTransition(Lifecycle.BEFORE_START_EVENT);
+    }
+
+    try {
+        // 生命周期监听器 org.apache.catalina.LifecycleEvent, 启动前事件回调
+        setStateInternal(LifecycleState.STARTING_PREP, null, false);
+        // 真正启动逻辑
+        startInternal();
+
+        if (state.equals(LifecycleState.FAILED)) {
+            // 如果启动失败, 组件会将自己的state改为FAILED, 此时就会回调stop()方法, 停止组件
+            stop();
+        } else if (!state.equals(LifecycleState.STARTING)) {
+            // 如果不处于启动中的状态, 说明子类乱设置状态, 抛出LifecycleException
+            invalidTransition(Lifecycle.AFTER_START_EVENT);
+        } else {
+            // 生命周期监听器 org.apache.catalina.LifecycleEvent, 启动后事件回调
+            setStateInternal(LifecycleState.STARTED, null, false);
+        }
+    } catch (Throwable t) {
+        // This is an 'uncontrolled' failure so put the component into the
+        // FAILED state and throw an exception.
+        handleSubClassException(t, "lifecycleBase.startFail", toString());
+    }
 }
 
 /**
@@ -418,50 +421,56 @@ protected abstract void startInternal() throws LifecycleException;
  */
 public final synchronized void stop() throws LifecycleException {
 
-  // 组件已停止, 即处于 停止前、停止中、停止后 这3个状态时, 直接返回
-  if (LifecycleState.STOPPING_PREP.equals(state) || LifecycleState.STOPPING.equals(state) ||
-      LifecycleState.STOPPED.equals(state)) {
-    	// ...省略日志
-    	return;
-  }
+    // 组件已停止, 即处于 停止前、停止中、停止后 这3个状态时, 直接返回
+    if (LifecycleState.STOPPING_PREP.equals(state) || 
+        LifecycleState.STOPPING.equals(state) ||
+        LifecycleState.STOPPED.equals(state)) {
+        // ...省略日志
+        return;
+    }
 
-  if (state.equals(LifecycleState.NEW)) {
-    	// 组件刚创建出来, 没有初始化, 就没有创建资源, 直接修改它的状态, 然后返回
-      state = LifecycleState.STOPPED;
-      return;
-  }
+    if (state.equals(LifecycleState.NEW)) {
+        // 组件刚创建出来, 没有初始化, 就没有创建资源, 直接修改它的状态, 然后返回
+        state = LifecycleState.STOPPED;
+        return;
+    }
 
-  if (!state.equals(LifecycleState.STARTED) && !state.equals(LifecycleState.FAILED)) {
-    	// 只有处于 启动中 || 已失败 状态的组件, 才可以停止.
-    	invalidTransition(Lifecycle.BEFORE_STOP_EVENT);
-  }
+    if (!state.equals(LifecycleState.STARTED) && 
+        !state.equals(LifecycleState.FAILED)) {
+        // 只有处于 启动中 || 已失败 状态的组件, 才可以停止.
+        invalidTransition(Lifecycle.BEFORE_STOP_EVENT);
+    }
 
-  try {
-      if (state.equals(LifecycleState.FAILED)) {
-          // 如果组件是处于失败状态, 不需要过渡到STOPPING_PREP状态, 直接触发STOPPING_PREP事件回调就行了
-          fireLifecycleEvent(BEFORE_STOP_EVENT, null);
-      } else {
-          // 如果是启动中状态的组件被停止了, 那就需要过渡到STOPPING_PREP状态, 同时触发监听器回调.
-          setStateInternal(LifecycleState.STOPPING_PREP, null, false);
-      }
-      // 真正停止组件
-      stopInternal();
+    try {
+        if (state.equals(LifecycleState.FAILED)) {
+            // 如果组件是处于失败状态, 不需要过渡到STOPPING_PREP状态, 
+            // 直接触发STOPPING_PREP事件回调就行了
+            fireLifecycleEvent(BEFORE_STOP_EVENT, null);
+        } else {
+            // 如果是启动中状态的组件被停止了, 那就需要过渡到STOPPING_PREP状态, 
+            // 同时触发监听器回调.
+            setStateInternal(LifecycleState.STOPPING_PREP, null, false);
+        }
+        // 真正停止组件
+        stopInternal();
 
-      if (!state.equals(LifecycleState.STOPPING) && !state.equals(LifecycleState.FAILED)) {
-          // 执行停止逻辑后的组件, 只允许处于STOPPING || FAILED状态, 其它状态说明出现了乱设置状态的问题, 直接抛异常
-          invalidTransition(Lifecycle.AFTER_STOP_EVENT);
-      }
-			// 生命周期监听器 org.apache.catalina.LifecycleEvent, 停止后事件回调
-      setStateInternal(LifecycleState.STOPPED, null, false);
-  } catch (Throwable t) {
-    	handleSubClassException(t, "lifecycleBase.stopFail", toString());
-  } finally {
-      if (this instanceof Lifecycle.SingleUse) {
-        // Complete stop process first
+        if (!state.equals(LifecycleState.STOPPING) && 
+            !state.equals(LifecycleState.FAILED)) {
+            // 执行停止逻辑后的组件, 只允许处于STOPPING || FAILED状态, 
+            // 其它状态说明出现了乱设置状态的问题, 直接抛异常
+            invalidTransition(Lifecycle.AFTER_STOP_EVENT);
+        }
+        // 生命周期监听器 org.apache.catalina.LifecycleEvent, 停止后事件回调
         setStateInternal(LifecycleState.STOPPED, null, false);
-        destroy();
-      }
-  }
+    } catch (Throwable t) {
+        handleSubClassException(t, "lifecycleBase.stopFail", toString());
+    } finally {
+        if (this instanceof Lifecycle.SingleUse) {
+            // Complete stop process first
+            setStateInternal(LifecycleState.STOPPED, null, false);
+            destroy();
+        }
+    }
 }
 
 /**
@@ -474,38 +483,41 @@ protected abstract void stopInternal() throws LifecycleException;
 
 ```java
 public final synchronized void destroy() throws LifecycleException {
-  if (LifecycleState.FAILED.equals(state)) {
-      try {
-        // 组件处于FAILED状态, 直接回调上面的stop()方法将其停止
-        stop();
-      } catch (LifecycleException e) {
-        // Just log. Still want to destroy.
-        log.error(sm.getString("lifecycleBase.destroyStopFail", toString()), e);
-      }
-  }
+    if (LifecycleState.FAILED.equals(state)) {
+        try {
+            // 组件处于FAILED状态, 直接回调上面的stop()方法将其停止
+            stop();
+        } catch (LifecycleException e) {
+            // Just log. Still want to destroy.
+            log.error(sm.getString("lifecycleBase.destroyStopFail", toString()), e);
+        }
+    }
 
-  if (LifecycleState.DESTROYING.equals(state) || LifecycleState.DESTROYED.equals(state)) {
-    	// 已经处于销毁状态, 无需重复销毁, 直接返回
-    	// ...这里省略掉日志
-	    return;
-  }
+    if (LifecycleState.DESTROYING.equals(state) || 
+        LifecycleState.DESTROYED.equals(state)) {
+        // 已经处于销毁状态, 无需重复销毁, 直接返回
+        // ...这里省略掉日志
+        return;
+    }
 
-  if (!state.equals(LifecycleState.STOPPED) && !state.equals(LifecycleState.FAILED) &&
-      !state.equals(LifecycleState.NEW) && !state.equals(LifecycleState.INITIALIZED)) {
-    	// 只有处于这四种状态的组件, 才允许销毁：STOPPED、FAILED、NEW、INITIALIZED
-    	invalidTransition(Lifecycle.BEFORE_DESTROY_EVENT);
-  }
+    if (!state.equals(LifecycleState.STOPPED) &&
+        !state.equals(LifecycleState.FAILED) &&
+        !state.equals(LifecycleState.NEW) && 
+        !state.equals(LifecycleState.INITIALIZED)) {
+        // 只有处于这四种状态的组件, 才允许销毁：STOPPED、FAILED、NEW、INITIALIZED
+        invalidTransition(Lifecycle.BEFORE_DESTROY_EVENT);
+    }
 
-  try {
-    	// 生命周期监听器 org.apache.catalina.LifecycleEvent, 销毁前事件回调
-      setStateInternal(LifecycleState.DESTROYING, null, false);
-    	// 执行真正销毁逻辑
-      destroyInternal();
-    	// 生命周期监听器 org.apache.catalina.LifecycleEvent, 销毁后事件回调
-      setStateInternal(LifecycleState.DESTROYED, null, false);
-  } catch (Throwable t) {
-    	handleSubClassException(t, "lifecycleBase.destroyFail", toString());
-  }
+    try {
+        // 生命周期监听器 org.apache.catalina.LifecycleEvent, 销毁前事件回调
+        setStateInternal(LifecycleState.DESTROYING, null, false);
+        // 执行真正销毁逻辑
+        destroyInternal();
+        // 生命周期监听器 org.apache.catalina.LifecycleEvent, 销毁后事件回调
+        setStateInternal(LifecycleState.DESTROYED, null, false);
+    } catch (Throwable t) {
+        handleSubClassException(t, "lifecycleBase.destroyFail", toString());
+    }
 }
 
 /**
@@ -528,17 +540,17 @@ protected abstract void destroyInternal() throws LifecycleException;
       super.initInternal();
   
       if (engine != null) {
-        // 容器初始化, 会连带初始化子容器Host
-        engine.init();
+          // 容器初始化, 会连带初始化子容器Host
+          engine.init();
       }
   
       // ...省略部分代码
   
       // 初始化连接器.
       synchronized (connectorsLock) {
-        for (Connector connector : connectors) {
-          connector.init();
-        }
+          for (Connector connector : connectors) {
+              connector.init();
+          }
       }
   }
   ```
@@ -744,3 +756,8 @@ Tomcat 用 SynchronizedStack 类来实现对象池
 - 设计一个比较大的系统或者框架时，同样也需要考虑这几个问题：如何统一管理组件的创建、初始化、启动、停止和销毁？如何做到代码逻辑清晰？如何方便地添加或者删除组件？如何做到组件启动和停止不遗漏、不重复？
 
 - 高并发就是能快速地处理大量的请求，需要合理设计线程模型让 CPU 忙起来，尽量不要让线程阻塞，因为一阻塞，CPU 就闲下来了
+
+源码阅读心得：
+
+- 带着问题阅读，每次只关心眼前问题，忽略和目前无关的细节
+- 及时记录得到的结论  

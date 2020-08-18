@@ -6,29 +6,283 @@ netty可以由一句话概括：**异步<sup>①</sup>**的**事件驱动<sup>�
 
 netty基于java-nio，用来快速开发高性能、高可靠性的网络服务器和客户端程序。使用 netty 可以确保快速和简单地开发出一个网络应用，例如实现了某种协议的客户，服务端应用。netty 相当简化和流线化了网络应用的编程开发过程，例如：TCP和UDP的socket 服务开发！
 
-## 2.Reactor模式
+# 2.Reactor模式
 
-netty是按照Reactor模式去设计它的整体架构，何为Reactor模式？它是一种基于事件驱动的设计模式，将一个或多个客户端请求分离（demultiplex）和调度（dispatch）给事件处理器(event handler)处理。
+netty是按照Reactor模式去设计整体架构，何为Reactor模式？它是一种基于事件驱动的设计模式，将一个或多个客户端请求分离（demultiplex）和调度（dispatch）给事件处理器(event handler)处理。换句话说，注册感兴趣的事件→扫描是否有感兴趣的事件发生→事件发生后作出相应处理
+
+reactor模式就是来解决`thread per connection`问题的，它的设计理念是以事件作为驱动，例如：在一次TCP连接中，从开始连接到数据交互完成，中间可以划分为多个事件如：连接就绪、读数据就绪、写数据就绪、连接关闭...每次事件发生都会回调对应的处理器（处理器即thread）
+
+这种模式将服务端线程的职能划分得更细致，以往服务端线程都是一条龙服务，从连接就绪到解析数据，读取数据最终写回数据，都在一个线程中完成。但reactor模式划分更细致，读事件有读处理器回调，写事件有写处理器回调。Java的nio包下的Selector本质上就是IO多路复用器，也是实现Reactor模式的基础
 
 ## 2.1.演变过程
 
+以下图总结自大神Doug Lea的Reactor模式一文，膜拜大佬！[http://gee.cs.oswego.edu/dl/cpjslides/nio.pdf](http://gee.cs.oswego.edu/dl/cpjslides/nio.pdf)
+
 ### 2.1.1.thread_per_connection
 
-对于TCP长连接，服务端通常都要维护与客户端关联的Socket，这就意味着每个客户端，服务端都需要新起一个线程去接收它的请求，这种编程模式是经典的、古老的“Thread per connection”
+对于TCP长连接，服务端通常都要维护与客户端关联的Socket，这就意味着每个客户端，服务端都需要新起一个线程去接收它的请求，这种编程模式是经典的、古老的`Thread per connection`，一个请求一个线程
 
 ![](./images/thread_per_connection.png)
 
-这种编程模式优点是简单，适用于小型项目，并发量较少；对于高并发量的系统，一个请求一个线程，频繁地创建和销毁线程，本身就会对系统造成巨大的性能开销。而后，在java中有了线程池的概念，虽然可以有效地减少创建线程带来的性能损耗，但却治标不治本，没从根本上解决一个请求一个线程的处理方式，一旦某次请求耗时，线程池任务用光，服务端就无法接收客户端的请求。
+这种编程模式优点是简单，适用于小型项目，并发量较少；对于高并发量的系统，一个请求一个线程，频繁地创建和销毁线程，本身就会对系统造成巨大的性能开销。虽然，在java中有了线程池的概念，虽然可以有效地减少创建线程带来的性能损耗，但却治标不治本，没从根本上解决一个请求一个线程的处理方式，一旦某次请求耗时，线程池任务用光，服务端就无法接收客户端的请求。伪代码如下：
 
-### 2.1.2.reactor
+```java
+class Server implements Runnable {
+    public void run() {
+        while (!Thread.interrupted()){
+            try {
+                // 初始化ServerSocket进行监听
+                ServerSocket ss = new ServerSocket(8080);
+                // 阻塞等待客户端发起连接
+                Socket socket = ss.accept();
+                // 接收到客户端连接后, 开启一个线程处理
+                executorService.execute(new Handler(socket));
+            }catch(Exception ex){
+                // 处理各种异常
+            }
+        }
+    }
 
-​	reactor模式就是来解决thread per connection问题的，它的设计理念是以事件作为驱动，例如：在一次TCP连接中，从开始连接到数据交互完成，中间可以划分为多个事件如：连接就绪、读数据就绪、写数据就绪、连接关闭...每次事件发生都会回调对应的处理器（处理器即thread）
+    static class Handler implements Runnable {
+        final Socket socket;
+        Handler(Socket s) { 
+            socket = s; 
+        }
+        public void run() {
+            try {
+                // 解码
+                byte[] input = new byte[MAX_INPUT];
+                socket.getInputStream().read(input);
+                // 逻辑处理
+                byte[] output = process(input);
+                // 重新编码, 写回Socket
+                socket.getOutputStream().write(output);
+            } catch (IOException ex) {
 
-​	这种模式将服务端线程的职能划分得更细致，以往服务端线程都是一条龙服务，从连接就绪到解析数据，读取数据最终写回数据，都在一个线程中完成。但reactor模式划分更细致，读事件有读处理器回调，写事件有写处理器回调。Java的nio包下的Selector本质上就是IO多路复用器，也是实现Reactor模式的基础
+            }
+        }
 
-![](./images/主从reactor.png)
+        /**
+         * 实际处理逻辑
+         */
+        private byte[] process(byte[] cmd) {}
+    }
+}
+```
 
-上图属于**主从Reactor**，是最完善的(还有单线程reactor、线程池reactor)，而netty也采用了这种设计模型，如netty常用的bossGroup和workerGroup。
+### 2.1.2.single_thread_reactor
+
+单线程Reactor模型，相当于所有的I/O事件（连接、读、写）都在一个线程里处理，这个线程就是创建并启动Reactor的线程。
+
+![](./images/Reactor单线程模型.png)
+
+但是，这种模型有个缺点，相当于把所有活儿都给Reactor干了，一是处理效率慢，二是如果该线程挂了，那服务就崩溃了。Reactor伪代码：
+
+```java
+public class Reactor implements Runnable {
+    // 基于java.nio
+    final Selector selector;
+    final ServerSocketChannel serverSocket;
+
+    public Reactor(int port) throws IOException {
+        // 创建一个Selector, 同时开启一个ServerlSocketChannel
+        selector = Selector.open();
+        serverSocket = ServerSocketChannel.open();
+        // 绑定端口
+        serverSocket.socket().bind(new InetSocketAddress(port));
+        // 配置为非阻塞模式
+        serverSocket.configureBlocking(false);
+        // 服务端只对连接事件感兴趣
+        SelectionKey sk = serverSocket.register(selector, SelectionKey.OP_ACCEPT);
+        // 选择键绑定一个Accector组件
+        sk.attach(new Acceptor(serverSocket));
+    }
+
+    public void run() { 
+        try {
+            // Reactor一直在死循环, 等待客户端的连接
+            while(!Thread.interrupted()){
+                // 阻塞在监听事件上, 等待事件返回
+                selector.select();
+                // 感兴趣的事件发生, Selector#select()会返回, 返回值类型为SectionKey集合
+                Set<SectionKey> selected = selector.selectedKeys();
+                Iterator it = selected.iterator();
+                while(it.hasNext()){
+                    SectionKey sectionKey = it.next;
+                    // 分发事件
+                    dispatch(sectionKey);
+                    // 清除事件
+                    it.remove();
+                }
+            }
+        }catch(Exception e){
+            // 处理异常
+        }
+    }
+    
+    void dispatch(SelectionKey k) {
+        // 根据SectionKey类型的不同, 调用不同的逻辑处理。这边统一抽调出接口Runnable, 然后不同的
+        // 处理逻辑实现Runnable接口。例如Acceptor组件的逻辑只负责接收连接; Handler组件的逻辑负责
+        // 处理读写请求
+        Runnable r = (Runnable)(k.attachment());
+        if (r != null){
+            r.run();
+        }
+    }
+}
+```
+
+Acceptor组件伪代码，它只负责接收客户端的连接：
+
+```java
+public class Acceptor() implements Runnable {
+    private final ServerSocket serverSocket;
+    public Acceptor(ServerSocket serverSocket){
+        this.serverSocket = serverSocket;
+    }
+       
+    /**
+     * 这边会由Reactor组件的dispatch()方法来调用
+     */
+    public void run() {
+        try {
+            SocketChannel channel = serverSocket.accept();
+            if (c != null){
+                // 接收到连接后, 创建一个Handler实例, 处理读写请求
+                new Handler(selector, channel);
+            }
+        }catch(IOException ex) { /*异常处理*/ }
+    }
+}
+```
+
+Handler组件伪代码，它负责读写逻辑。每来一个客户端连接，都会创建一个Handler处理
+
+```java
+final class Handler implements Runnable {
+
+    static final int READING = 0, SENDING = 1;
+    final SocketChannel socket;
+    final SelectionKey sk;
+    ByteBuffer input = ByteBuffer.allocate(MAXIN);
+    ByteBuffer output = ByteBuffer.allocate(MAXOUT);
+    int state = READING;
+
+    public Handler(Selector selector, SocketChannel channel) throws IOException {
+        // 保存与客户端连接的通道Channel, 并将其配置为非阻塞模式
+        this.socket = channel; 
+        this.socket.configureBlocking(false);
+        // 往同一个Selector中注册读写事件
+        sk = socket.register(selector, 0);
+        // 会返回一个选择键, 将当前Handler关联进去, 一旦事件发生, 可以调用此Handler的方法
+        sk.attach(this);
+        // 刚创建的只对读事件感兴趣
+        sk.interestOps(SelectionKey.OP_READ);
+        // 唤醒Selector, 避免还在select()方法上阻塞
+        selector.wakeup();
+    }
+    
+    boolean inputIsComplete() { /*返回数据是否读取完成*/ }
+    boolean outputIsComplete() { /*返回数据是否写出完成*/ }
+    void process() { /*具体读逻辑*/ }
+
+    /**
+     * 此方法被Reatcor的dispatch()方法调用
+     */
+    public void run() {
+        try {
+            if (state == READING){
+                 read();
+            }else if(state == SENDING){
+                send();
+            }
+        } catch (IOException ex) { /*异常处理*/ }
+    }
+    
+    /**
+     * 实际读逻辑
+     */
+    void read() throws IOException {
+        // 将数据读取到缓冲区中
+        socket.read(input);
+        if (inputIsComplete()) {
+            // 实际读事件处理逻辑
+            process();
+            // 更改状态为发送
+            state = SENDING;
+            // 读事件处理完成以后, 感兴趣事件变为写
+            sk.interestOps(SelectionKey.OP_WRITE);
+        }
+    }
+    
+    /**
+     * 实际写逻辑
+     */
+    void send() throws IOException {
+        socket.write(output);
+        if (outputIsComplete()) {
+            // 数据写回完成后, 释放SectionKey
+            sk.cancel();
+        }
+    }
+}
+```
+
+### 2.1.3.multi_thread_reactor
+
+多线程Reactor模型，就是将上一步单线程Reactor模型的Handler组件从Reactor中解放出来，不在运行Reactor的线程中调用，而是启用一个线程池，可以称该线程池为Workers，交由它来执行读写逻辑。
+
+![](./images/Reactor多线程模型.png)
+
+其实很容易可以看出单线程Reactor模型的缺点，那就是如果业务逻辑处理比较耗时，其实是会占用Reactor所在线程的效率，那就没办法及时响应其它客户端的请求。所以把业务逻辑放到线程池中执行，其实也就是将Handler异步执行，伪代码为：
+
+```java
+class Handler implements Runnable {
+    // 开启一个线程池
+    static PooledExecutor pool = new PooledExecutor(...);
+    static final int PROCESSING = 3;
+    
+    /**
+     * 此方法被Reatcor的dispatch()方法调用
+     */
+    public void run() {
+        try {
+            if (state == READING){
+                 read();
+            }else if(state == SENDING){
+                send();
+            }
+        } catch (IOException ex) { /*异常处理*/ }
+    }
+    
+    // 读请求
+    synchronized void read() { 
+        socket.read(input);
+        if (inputIsComplete()) {
+            state = PROCESSING;
+            // 业务逻辑放到线程池中执行
+            pool.execute(new Processer());
+        }
+    }
+    
+    // 在线程池中处理业务逻辑
+    class Processer implements Runnable {
+        public void run() { processAndHandOff(); }
+    }
+    
+    // 实际处理请求
+    synchronized void processAndHandOff() {
+        process();
+        state = SENDING;
+        sk.interest(SelectionKey.OP_WRITE);
+    }
+    
+}
+```
+
+### 2.1.2.master_slave_multi_thread_reactor
+
+主从多线程Reactor模式，将职责更细分化，前面两个Reactor，不仅要监听连接事件，还要监听读写事件。而主从Reactor模型将这个职责更细分化，一个Reactor负责处理连接请求，另一个Reactor处理读写请求。其实netty也采用了这种设计模型，如netty常用的bossGroup和workerGroup。
 
 这种编程模型组件功能如下：
 
@@ -36,9 +290,11 @@ netty是按照Reactor模式去设计它的整体架构，何为Reactor模式？�
 
 2. subReactor负责处理客户端请求，当客户端有数据传入时，通过线程池处理这些数据。实际上，就是在Socket对应事件发生时回调对应处理器。
 
+![](./images/Reactor主从模型.png)
+
 ## 2.2.编程模型
 
-上面的两张图是Doug Lea在《Scalable IO in Java》一文中针对于java提出reactor编程模式。还有一篇更古老的博客《reactor-siemens》诠释了Reactor模式的架构设计，也是很经典的一张图：
+上面是Doug Lea在《Scalable IO in Java》一文中针对于java提出reactor编程模式。还有一篇更古老的博客《reactor-siemens》诠释了Reactor模式的架构设计，也是很经典的一张图：
 
 <img src="./images/Reactor模式的架构设计.png" style="zoom:80%;" />
 
@@ -71,6 +327,35 @@ netty是按照Reactor模式去设计它的整体架构，何为Reactor模式？�
 4. **run event loop**。当所有事件处理器注册完毕，主程序调用handle_events()方法启动Initiation Dispatcher的事件循环。此时，Initiation Dispatcher会将每个注册的事件管理器的handle合并起来，通过同步事件分离器等待事件发生；
 
 5. **dispatch handler**。当事件对应的handle变为ready状态(即可用状态)，同步事件分离器就通知分发器，分发器就会通过这个handle选择恰当的事件处理器回调方法。
+
+## 2.3.Netty对Reactor的支持
+
+netty用它巧妙的设计，很简单地可以实现不同Reactor的效果：
+
+- 单线程Reatcor
+
+  ```java
+  EventLoopGroup eventGroup = new NioEventLoopGroup(1);
+  ServerBootstrap serverBootstrap = new ServerBootstrap();
+  serverBootstrap.group(eventGroup);
+  ```
+
+- 多线程Reatcor
+
+  ```java
+  EventLoopGroup eventGroup = new NioEventLoopGroup();
+  ServerBootstrap serverBootstrap = new ServerBootstrap();
+  serverBootstrap.group(eventGroup);
+  ```
+
+- 主从Reactor
+
+  ```java
+  EventLoopGroup parentGroup = new NioEventLoopGroup(1);
+  EventLoopGroup childGroup = new NioEventLoopGroup();
+  ServerBootstrap serverBootstrap = new ServerBootstrap();
+  serverBootstrap.group(parentGroup, childGroup);
+  ```
 
 # 3.Netty缓冲区
 

@@ -76,7 +76,7 @@ broker，即消息队列服务器实体
 
 ②Erlang下载地址：[http://www.erlang.org/downloads](http://www.erlang.org/downloads)
 
-(资源包：http://www.rabbitmq.com/releases/rabbitmq-server)
+(资源包：[http://www.rabbitmq.com/releases/rabbitmq-server](http://www.rabbitmq.com/releases/rabbitmq-server))
 
 ## 2.1.window
 
@@ -243,17 +243,14 @@ sudo apt-get install tk8.5
    
    ##查看默认guest用户的权限
    sudo rabbitmqctl list_user_permissions guest 
-   
     
    ##删掉默认用户(由于RabbitMQ默认的账号用户名和密码都是guest。为
    ##了安全起见, 可以删掉默认用户）
    sudo rabbitmqctl delete_user guest 
    
-   
    ##设置用户tag
    sudo rabbitmqctl set_user_tags username administrator
    
-    
    
    ##赋予用户默认vhost的全部操作权限
    sudo rabbitmqctl set_permissions -p / username ".*" ".*" ".*" 
@@ -305,7 +302,15 @@ rabbitMQ在三种情况下会发生消息丢失：
 
 ## 4.1.ack确认机制
 
-解决第一种消息丢失，即消息在传输给MQ的时候就丢失了，这种情况就要使用ACK确认机制来解决。具体步骤为：开启confirm模式。生产者开启 confirm 模式后，每次写的消息都会分配一个唯一的 id，然后如果写入了 RabbitMQ 中，RabbitMQ 会回传一个 ack 消息，告诉你说这个消息 ok 了；如果 RabbitMQ 没能处理这个消息，会回调你的一个 nack 接口，告诉你这个消息接收失败，就可以重试。
+对于生产者丢失消息的场景，rabbitMQ提供了两种机制来防止：`transaction机制`和`confirm模式`。
+
+- 事务，transaction机制
+
+发送消息前，开启事务`channel.txSelect()`，然后发送消息，如果发送过程中出现什么异常，可以手动将事务回滚`channel.txRollback()`，所有消息发送成功后提交事务`channel.txCommit()`
+
+- confirm模式
+
+使用ACK确认机制来解决。具体步骤为：channel开启confirm模式。生产者开启 confirm 模式后，每次写的消息都会分配一个唯一的 id，然后如果写入了 RabbitMQ 中，RabbitMQ 会回传一个 ack 消息，告诉你说这个消息 ok 了；如果 RabbitMQ 没能处理这个消息，会回调你的一个 nack 接口，告诉你这个消息接收失败，就可以重试。
 
 (最好不要用RabbitMQ的事务，因为事务机制是同步的，提交一个事务之后会阻塞在那儿，但是 confirm 机制是异步的，发送一个消息之后就可以发送下一个消息，然后那个消息 RabbitMQ 接收了之后会异步回调接口，通知这个消息接收到了)
 
@@ -339,7 +344,9 @@ RabbitMQ消息顺序错乱的场景：
 
 ## 5.2.解决方案
 
-一个 queue 但是对应一个 consumer，然后这个 consumer 内部用内存队列做排队，然后分发给底层不同的 worker 来处理，这样子就把消息的有序性转移到业务代码来实现。
+- `单线程`消费保证消息的顺序性；
+- 消息进行`编号`，消费者处理消息是根据编号处理消息；
+- 一个队列对应一个 consumer，然后这个 consumer 内部用内存队列做排队，然后分发给底层不同的 worker 来处理，这样子就把消息的有序性转移到业务代码来实现。
 
 # *.java客户端
 

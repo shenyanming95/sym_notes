@@ -555,9 +555,159 @@ protected abstract void destroyInternal() throws LifecycleException;
   }
   ```
 
-## 3.4.容器启动源码
+## 3.4.启动源码
 
 tomcat启动的入口点在`org.apache.catalina.startup.Bootstrap`这个类，它有一个静态代码块和一个main()方法。静态代码块的作用就是确定`catalina.home`的文件目录，就是tomcat存放配置文件的目录；main()方法的作用会创建Catalina实例，通过它创建出各个Tomcat组件，然后启动。
+
+```java
+public static void main(String[] args) {
+  // 第一步,  先创建实例
+  synchronized (daemonLock) {
+    if (daemon == null) {
+      Bootstrap bootstrap = new Bootstrap();
+      try {
+        // 初始化tomcat自己的类加载器、实例化Catalina等.
+        // 实际Tomcat启停都是操作Catalina
+        bootstrap.init();
+      } catch (Throwable t) {
+        handleThrowable(t);
+        t.printStackTrace();
+        return;
+      }
+      daemon = bootstrap;
+    } else {
+      Thread.currentThread().setContextClassLoader(daemon.catalinaLoader);
+    }
+  }
+  
+  // ...省略其它代码
+  // 设置 org.apache.catalina.startup.Catalina 的 await 属性为true. 
+  // 因为tomcat默认会在8005开一个ServerSocket用于管理tomcat服务,
+  // 所以会让tomcat服务在那个端口上等待, 前提是这个 await 属性值要为true.
+  daemon.setAwait(true);
+
+  // 先加载：调用 org.apache.catalina.startup.Catalina#load() 方法
+  daemon.load(args);
+
+  // 再启动：调用 org.apache.catalina.startup.Catalina#start() 方法
+  daemon.start();
+}
+```
+
+### 3.4.1.load()
+
+实际会调用Catalina#load()方法先加载Tomcat的各个组件
+
+```java
+public void load() {
+  // 防止重复加载
+  if (loaded) {
+    return;
+  }
+  loaded = true;
+
+  long t1 = System.nanoTime();
+
+  // 听说 tomcat 10 就会被删除掉.
+  initDirs();
+
+  // 这里面涉及JNDI(Java命名和目录接口), JNDI可以：访问文件系统中的文件、定位远程
+  // RMI注册的对象，访问象LDAP这样的目录服务，定位网络上的EJB组件等等.
+  // 其中, javax.naming.Context 是命名服务执行查询的入口, tomcat会设值系统属性
+  // java.naming.factory.initial 为org.apache.naming.java.javaURLContextFactory.
+  initNaming();
+
+  // 解析 ../conf/server.xml, 这是tomcat核心配置之一, 它会定义 Server、Service、Connector、
+  // Engine、Host、Context和Listener等组件.会把配置文件的内容解析到 
+  // org.apache.catalina.startup.Catalina#server属性上
+  parseServerXml(true);
+  // 有了上面的解析, 就可以获取到 org.apache.catalina.Server, 
+  // 注意Server里面有连带它的其它组件信息噢
+  Server s = getServer();
+  if (s == null) {
+    return;
+  }
+  // 设置 Server 的catalina根目录
+  getServer().setCatalina(this);
+  getServer().setCatalinaHome(Bootstrap.getCatalinaHomeFile());
+  getServer().setCatalinaBase(Bootstrap.getCatalinaBaseFile());
+
+  // tomcat使用装饰者模式, 替换了 java 自带的 System.out and System.err
+  initStreams();
+
+  // Start the new server
+  try {
+    // 初始化 Server, tomcat的生命周期组件, 父组件触发生命周期的方法, 会联动旗下的子组件一起触发.
+    // tomcat生命周期方法, 一般有两层：
+    // 一是, 抽象父类 org.apache.catalina.util.LifecycleBase 实现的, 做状态检查和回调监听器的.
+    // 二是, 具体子类(这边是org.apache.catalina.core.StandardServer)的实际运行逻辑.
+    // 各个组件的源码分析：https://github.com/shenyanming95/sym_tomcat
+    getServer().init();
+  } catch (LifecycleException e) {
+    if (Boolean.getBoolean("org.apache.catalina.startup.EXIT_ON_INIT_FAILURE")) {
+      throw new java.lang.Error(e);
+    } else {
+      log.error(sm.getString("catalina.initError"), e);
+    }
+  }
+}
+```
+
+### 3.4.2.start()
+
+实际是调用Catalina#start()方法启动容器
+
+```java
+public void start() {
+  // 如果Server为空, 先加载
+  if (getServer() == null) {
+    load();
+  }
+  // 还为空, 说明有异常
+  if (getServer() == null) {
+    log.fatal(sm.getString("catalina.noServer"));
+    return;
+  }
+  long t1 = System.nanoTime();
+  try {
+    // 启动Server, 就是启动Tomcat实例. 由于Tomcat在设计上使用了LifeCycle, 上层组件的启动,
+    // 会连带它关联的下层组件的启动, 这就是一键启停的设计精华.
+    // 各个组件的源码分析：https://github.com/shenyanming95/sym_tomcat
+    getServer().start();
+  } catch (LifecycleException e) {
+    log.fatal(sm.getString("catalina.serverStartFail"), e);
+    try {
+      getServer().destroy();
+    } catch (LifecycleException e1) {
+      log.debug("destroy() failed for failed Server ", e1);
+    }
+    return;
+  }
+
+  // 注册停止tomcat的钩子函数
+  if (useShutdownHook) {
+    if (shutdownHook == null) {
+      shutdownHook = new CatalinaShutdownHook();
+    }
+    Runtime.getRuntime().addShutdownHook(shutdownHook);
+    // If JULI is being used, disable JULI's shutdown hook since
+    // shutdown hooks run in parallel and log messages may be lost
+    // if JULI's hook completes before the CatalinaShutdownHook()
+    LogManager logManager = LogManager.getLogManager();
+    if (logManager instanceof ClassLoaderLogManager) {
+      ((ClassLoaderLogManager) logManager).setUseShutdownHook(
+        false);
+    }
+  }
+
+  if (await) {
+    // Tomcat实例会在这边阻塞住, 等待停止的命令
+    await();
+    // 如果发起了停止指令, 调用stop()方法
+    stop();
+  }
+}
+```
 
 # 4.连接器
 
@@ -571,47 +721,49 @@ Tomcat 的 NioEndPoint 组件基于java的nio包实现了 I/O 多路复用模型
 
 
 
-- Executor：线程池，负责运行 SocketProcessor 任务类，SocketProcessor 的 run 方法会调用 Http11Processor 来读取和解析请求数据。我们知道，Http11Processor 是应用层协议的封装，它会调用容器获得响应，再把响应通过 Channel 写出
+- `org.apache.catalina.Executor`：
+
+  线程池，负责运行 SocketProcessor 任务类，SocketProcessor 的 run 方法会调用 Http11Processor 来读取和解析请求数据。我们知道，Http11Processor 是应用层协议的封装，它会调用容器获得响应，再把响应通过 Channel 写出
 
 - `org.apache.tomcat.util.threads.LimitLatch`
 
-连接控制器，它负责控制最大连接数，NIO 模式下默认是 10000，达到这个阈值后，连接请求被拒绝；当连接数到达最大时会阻塞线程，直到后续组件处理完一个连接后，才会将连接数减 1。但是需要注意到达最大连接数后，操作系统底层还是会接收客户端连接，但用户层已经不再接收；
+  连接控制器，它负责控制最大连接数，NIO 模式下默认是 10000，达到这个阈值后，连接请求被拒绝；当连接数到达最大时会阻塞线程，直到后续组件处理完一个连接后，才会将连接数减 1。但是需要注意到达最大连接数后，操作系统底层还是会接收客户端连接，但用户层已经不再接收；
 
 - `org.apache.tomcat.util.net.Acceptor`
 
-创建**Acceptor**需要传入`org.apache.tomcat.util.net.AbstractEndpoint`，其实是为了持有ServerSocketChannel 对象，该对象在EndPoint的初始化代码：
+  创建**Acceptor**需要传入`org.apache.tomcat.util.net.AbstractEndpoint`，其实是为了持有ServerSocketChannel 对象，该对象在EndPoint的初始化代码：
 
-```java
-serverSock = ServerSocketChannel.open();
-// bind 方法的第二个参数表示操作系统的等待队列长度，当应用层面的连接数到达最大值时，操作系统可以继续
-// 接收连接，那么操作系统能继续接收的最大连接数就是这个队列长度，可以通过 acceptCount 参数配置，
-// 默认是 100。
-serverSock.socket().bind(addr,getAcceptCount());
+  ```java
+  serverSock = ServerSocketChannel.open();
+  // bind 方法的第二个参数表示操作系统的等待队列长度，当应用层面的连接数到达最大值时，操作系统可以继续
+  // 接收连接，那么操作系统能继续接收的最大连接数就是这个队列长度，可以通过 acceptCount 参数配置，
+  // 默认是 100。
+  serverSock.socket().bind(addr,getAcceptCount());
+  
+  // 设置成阻塞模式，也就是说它是以阻塞的方式接收连接的
+  serverSock.configureBlocking(true);
+  ```
 
-// 设置成阻塞模式，也就是说它是以阻塞的方式接收连接的
-serverSock.configureBlocking(true);
-```
-
-Acceptor跑在一个单独的线程里，它在一个死循环里调用ServerSocketChannel 的 accept() 方法来接收新连接，一旦有新的连接请求到来，accept() 方法返回获得 SocketChannel 对象，然后**Acceptor**会将 SocketChannel 对象封装在一个 PollerEvent 对象中，并将 PollerEvent 对象压入 Poller 的 Queue 里
+  Acceptor跑在一个单独的线程里，它在一个死循环里调用ServerSocketChannel 的 accept() 方法来接收新连接，一旦有新的连接请求到来，accept() 方法返回获得 SocketChannel 对象，然后**Acceptor**会将 SocketChannel 对象封装在一个 PollerEvent 对象中，并将 PollerEvent 对象压入 Poller 的 Queue 里
 
 - `org.apache.tomcat.util.net.NioEndpoint.Poller`
 
-独立运行在一个线程里，本质是一个 Selector，每个 Poller 线程可能同时被多个 Acceptor 线程调用来注册 PollerEvent。Poller 不断的通过内部的 Selector 对象向内核查询 Channel 的状态，一旦可读就生成任务类 SocketProcessor 交给 Executor 去处理
+  独立运行在一个线程里，本质是一个 Selector，每个 Poller 线程可能同时被多个 Acceptor 线程调用来注册 PollerEvent。Poller 不断的通过内部的 Selector 对象向内核查询 Channel 的状态，一旦可读就生成任务类 SocketProcessor 交给 Executor 去处理
 
-```java
-private Selector selector;
-
-// 保证同一时刻只有一个 Acceptor 线程对 Queue 进行读写
-private final SynchronizedQueue<PollerEvent> events = new SynchronizedQueue<>();
-```
+  ```java
+  private Selector selector;
+  
+  // 保证同一时刻只有一个 Acceptor 线程对 Queue 进行读写
+  private final SynchronizedQueue<PollerEvent> events = new SynchronizedQueue<>();
+  ```
 
 - `org.apache.tomcat.util.net.NioEndpoint.SocketProcessor`
 
-Poller 会创建 SocketProcessor 任务类交给线程池处理，而 SocketProcessor 实现了 Runnable 接口，用来定义 Executor 中线程所执行的任务，主要就是调用 Http11Processor 组件来处理请求
+  Poller 会创建 SocketProcessor 任务类交给线程池处理，而 SocketProcessor 实现了 Runnable 接口，用来定义 Executor 中线程所执行的任务，主要就是调用 Http11Processor 组件来处理请求
 
 - `org.apache.catalina.Executor`
 
-Executor 是 Tomcat 定制版的线程池，执行 SocketProcessor 的 run 方法，也就是解析请求并通过容器来处理请求，最终会调用到我们的 Servlet
+  Executor 是 Tomcat 定制版的线程池，执行 SocketProcessor 的 run 方法，也就是解析请求并通过容器来处理请求，最终会调用到我们的 Servlet
 
 ## 4.2.Nio2Endpoint
 
@@ -621,61 +773,60 @@ Nio2Endpoint的组件跟NioEndpoint类似，但是**Nio2Endpoint 中没有 Polle
 
 - LimitLatch
 
-连接控制器，它负责控制最大连接数
+  连接控制器，它负责控制最大连接数
 
 - Nio2Acceptor
 
-Nio2Acceptor 扩展了 Acceptor，并且 Nio2Acceptor 自己就是处理连接的回调类，因此 Nio2Acceptor 实现了 CompletionHandler 接口。用异步 I/O 的方式来接收连接，跑在一个单独的线程里，也是一个线程组。Nio2Acceptor 接收新的连接后，得到一个 AsynchronousSocketChannel，Nio2Acceptor 把 AsynchronousSocketChannel 封装成一个 Nio2SocketWrapper，并创建一个 SocketProcessor 任务类交给线程池处理，并且 SocketProcessor 持有 Nio2SocketWrapper 对象
+  Nio2Acceptor 扩展了 Acceptor，并且 Nio2Acceptor 自己就是处理连接的回调类，因此 Nio2Acceptor 实现了 CompletionHandler 接口。用异步 I/O 的方式来接收连接，跑在一个单独的线程里，也是一个线程组。Nio2Acceptor 接收新的连接后，得到一个 AsynchronousSocketChannel，Nio2Acceptor 把 AsynchronousSocketChannel 封装成一个 Nio2SocketWrapper，并创建一个 SocketProcessor 任务类交给线程池处理，并且 SocketProcessor 持有 Nio2SocketWrapper 对象
 
-```java
-protected class Nio2Acceptor extends Acceptor<AsynchronousSocketChannel>
-    implements CompletionHandler<AsynchronousSocketChannel, Void> {
-    
-@Override
-public void completed(AsynchronousSocketChannel socket,
-        Void attachment) {
-        
-    if (isRunning() && !isPaused()) {
-        if (getMaxConnections() == -1) {
-            // 如果没有连接限制，继续接收新的连接
-            serverSock.accept(null, this);
-        } else {
-            // 如果有连接限制，就在线程池里跑 Run 方法，Run 方法会检查连接数
-            getExecutor().execute(this);
-        }
-        // 处理请求
-        if (!setSocketOptions(socket)) {
-            closeSocket(socket);
-        }
-    } 
-}
-```
+  ```java
+  protected class Nio2Acceptor extends Acceptor<AsynchronousSocketChannel>
+      implements CompletionHandler<AsynchronousSocketChannel, Void> {
+      
+  @Override
+  public void completed(AsynchronousSocketChannel socket,
+          Void attachment) {
+          
+      if (isRunning() && !isPaused()) {
+          if (getMaxConnections() == -1) {
+              // 如果没有连接限制，继续接收新的连接
+              serverSock.accept(null, this);
+          } else {
+              // 如果有连接限制，就在线程池里跑 Run 方法，Run 方法会检查连接数
+              getExecutor().execute(this);
+          }
+          // 处理请求
+          if (!setSocketOptions(socket)) {
+              closeSocket(socket);
+          }
+      } 
+  }
+  ```
 
 - `org.apache.tomcat.util.net.Nio2Endpoint.Nio2SocketWrapper`
 
-Nio2SocketWrapper 的主要作用是封装 Channel，并提供接口给 Http11Processor 读写数据，Http11Processor 是不能阻塞等待数据的，按照异步 I/O 的套路，Http11Processor 在调用 Nio2SocketWrapper 的 read 方法时需要注册回调类，read 调用会立即返回，问题是立即返回后 Http11Processor 还没有读到数据， 怎么办呢？
+  Nio2SocketWrapper 的主要作用是封装 Channel，并提供接口给 Http11Processor 读写数据，Http11Processor 是不能阻塞等待数据的，按照异步 I/O 的套路，Http11Processor 在调用 Nio2SocketWrapper 的 read 方法时需要注册回调类，read 调用会立即返回，问题是立即返回后 Http11Processor 还没有读到数据， 怎么办呢？
 
-为了解决这个问题，Http11Processor 是通过 2 次 read 调用来完成数据读取操作的。
+  为了解决这个问题，Http11Processor 是通过 2 次 read 调用来完成数据读取操作的。
 
-1. 第一次 read 调用：连接刚刚建立好后，Acceptor 创建 SocketProcessor 任务类交给线程池去处理，Http11Processor 在处理请求的过程中，会调用 Nio2SocketWrapper 的 read 方法发出第一次读请求，同时注册了回调类 readCompletionHandler，因为数据没读到，Http11Processor 把当前的 Nio2SocketWrapper 标记为数据不完整。**接着 SocketProcessor 线程被回收，Http11Processor 并没有阻塞等待数据**。这里请注意，Http11Processor 维护了一个 Nio2SocketWrapper 列表，也就是维护了连接的状态。
+  1. 第一次 read 调用：连接刚刚建立好后，Acceptor 创建 SocketProcessor 任务类交给线程池去处理，Http11Processor 在处理请求的过程中，会调用 Nio2SocketWrapper 的 read 方法发出第一次读请求，同时注册了回调类 readCompletionHandler，因为数据没读到，Http11Processor 把当前的 Nio2SocketWrapper 标记为数据不完整。**接着 SocketProcessor 线程被回收，Http11Processor 并没有阻塞等待数据**。这里请注意，Http11Processor 维护了一个 Nio2SocketWrapper 列表，也就是维护了连接的状态。
+  2. 第二次 read 调用：当数据到达后，内核已经把数据拷贝到 Http11Processor 指定的 Buffer 里，同时回调类 readCompletionHandler 被调用，在这个回调处理方法里会**重新创建一个新的 SocketProcessor 任务来继续处理这个连接**，而这个新的 SocketProcessor 任务类持有原来那个 Nio2SocketWrapper，这一次 Http11Processor 可以通过 Nio2SocketWrapper 读取数据了，因为数据已经到了应用层的 Buffer。
 
-2. 第二次 read 调用：当数据到达后，内核已经把数据拷贝到 Http11Processor 指定的 Buffer 里，同时回调类 readCompletionHandler 被调用，在这个回调处理方法里会**重新创建一个新的 SocketProcessor 任务来继续处理这个连接**，而这个新的 SocketProcessor 任务类持有原来那个 Nio2SocketWrapper，这一次 Http11Processor 可以通过 Nio2SocketWrapper 读取数据了，因为数据已经到了应用层的 Buffer。
+  这个回调类 readCompletionHandler 的源码如下，最关键的一点是，**Nio2SocketWrapper 是作为附件类来传递的**，这样在回调函数里能拿到所有的上下文。
 
-这个回调类 readCompletionHandler 的源码如下，最关键的一点是，**Nio2SocketWrapper 是作为附件类来传递的**，这样在回调函数里能拿到所有的上下文。
-
-```java
-this.readCompletionHandler = new CompletionHandler<Integer, SocketWrapperBase<Nio2Channel>>() {
-    public void completed(Integer nBytes, SocketWrapperBase<Nio2Channel> attachment) {
-        ...
-            // 通过附件类 SocketWrapper 拿到所有的上下文
-            Nio2SocketWrapper.this.getEndpoint().processSocket(attachment, SocketEvent.OPEN_READ, false);
-    }
-
-    public void failed(Throwable exc, SocketWrapperBase<Nio2Channel> attachment) {
-        ...
-    }
-}
-```
+  ```java
+  this.readCompletionHandler = new CompletionHandler<Integer, SocketWrapperBase<Nio2Channel>>() {
+      public void completed(Integer nBytes, SocketWrapperBase<Nio2Channel> attachment) {
+          ...
+              // 通过附件类 SocketWrapper 拿到所有的上下文
+       Nio2SocketWrapper.this.getEndpoint().processSocket(attachment, SocketEvent.OPEN_READ, false);
+      }
+  
+      public void failed(Throwable exc, SocketWrapperBase<Nio2Channel> attachment) {
+          ...
+      }
+  }
+  ```
 
 ## 4.3.AprEndpoint 
 
@@ -685,11 +836,11 @@ AprEndpoint工作流程：
 
 - Acceptor
 
-Accpetor 的功能就是监听连接，接收并建立连接。它的本质就是调用了四个操作系统 API：socket、bind、listen 和 accept
+  Accpetor 的功能就是监听连接，接收并建立连接。它的本质就是调用了四个操作系统 API：socket、bind、listen 和 accept
 
 - pollor
 
-Acceptor 接收到一个新的 Socket 连接后，按照 NioEndpoint 的实现，它会把这个 Socket 交给 Poller 去查询 I/O 事件。AprEndpoint 也是这样做的，不过 AprEndpoint 的 Poller 并不是调用 Java NIO 里的 Selector 来查询 Socket 的状态，而是通过 JNI 调用 APR 中的 poll 方法，而 APR 又是调用了操作系统的 epoll API 来实现的。
+  Acceptor 接收到一个新的 Socket 连接后，按照 NioEndpoint 的实现，它会把这个 Socket 交给 Poller 去查询 I/O 事件。AprEndpoint 也是这样做的，不过 AprEndpoint 的 Poller 并不是调用 Java NIO 里的 Selector 来查询 Socket 的状态，而是通过 JNI 调用 APR 中的 poll 方法，而 APR 又是调用了操作系统的 epoll API 来实现的。
 
 AprEndpoint使用的内存空间是本地内存，相比于NioEndpoint和Nio2Endpoint的堆内存，少了复制操作
 
@@ -723,8 +874,6 @@ Tomcat 线程池和 Java 原生线程池的区别，其实就是在第 3 步，T
 
 
 
-
-
 名字里带有Acceptor的线程负责接收浏览器的连接请求。
 
 名字里带有Poller的线程，其实内部是个Selector，负责侦测IO事件。
@@ -733,10 +882,6 @@ Tomcat 线程池和 Java 原生线程池的区别，其实就是在第 3 步，T
 
 名字里带有 Catalina-utility的是Tomcat中的工具线程，主要是干杂活，比如在后台定期检查Session是否过期、定期检查Web应用是否更新（热部署热加载）、检查异步Servlet的连接是否过期等等。
 
-
-
-
-
 # 6.对象池
 
 所谓的对象池技术，就是说一个 Java 对象用完之后把它保存起来，之后再拿出来重复使用，省去了对象创建、初始化和 GC 的过程。对象池技术是典型的以**空间换时间**的思路。
@@ -744,8 +889,6 @@ Tomcat 线程池和 Java 原生线程池的区别，其实就是在第 3 步，T
 比如 Tomcat 和 Jetty 处理 HTTP 请求的场景就符合这个特征，请求的数量很多，为了处理单个请求需要创建不少的复杂对象（比如 Tomcat 连接器中 SocketWrapper 和 SocketProcessor），而且一般来说请求处理的时间比较短，一旦请求处理完毕，这些对象就需要被销毁，因此这个场景适合对象池技术。
 
 Tomcat 用 SynchronizedStack 类来实现对象池
-
-
 
 # *.心得
 
@@ -756,8 +899,3 @@ Tomcat 用 SynchronizedStack 类来实现对象池
 - 设计一个比较大的系统或者框架时，同样也需要考虑这几个问题：如何统一管理组件的创建、初始化、启动、停止和销毁？如何做到代码逻辑清晰？如何方便地添加或者删除组件？如何做到组件启动和停止不遗漏、不重复？
 
 - 高并发就是能快速地处理大量的请求，需要合理设计线程模型让 CPU 忙起来，尽量不要让线程阻塞，因为一阻塞，CPU 就闲下来了
-
-源码阅读心得：
-
-- 带着问题阅读，每次只关心眼前问题，忽略和目前无关的细节
-- 及时记录得到的结论  

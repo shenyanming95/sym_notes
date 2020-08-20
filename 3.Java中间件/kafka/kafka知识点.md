@@ -203,8 +203,6 @@ RangeAssignor：按照消费者总数和分区总数进行整除运算来获得�
 
 如果上面两者发生冲突，第一个目标优先于第二个目标
 
-
-
 ### 3.2.3.避免重平衡
 
 鉴于kafka重平衡带来的坏影响，最好的方式是尽量避免kafka执行重平衡，有时候并不是主观原因导致的Rebalance，大部分还是客观原因导致的
@@ -305,25 +303,107 @@ kafka是通过Broker参数`replica.lag.time.max.ms`，来判断一个Follower是
 
 但是，有一种情况，那就是一个Partition内的ISR副本为空（注意Leader本身就属于ISR副本，如果Leader挂了，那ISR就为空），那么此时kafka就没办法选择Follower出来选举，因此就会拒绝服务，失去高可用性。此时，只要选举不在ISR中的Follower，选举这种副本的过程称为 Unclean 领导者选举。Broker 端参数 `unclean.leader.election.enable `控制是否允许 Unclean 领导者选举。当然这种方式，会牺牲数据一致性，来保证高可用性
 
+## 4.2.重平衡过程
+
+Consumer需要定期向Coordinator发送心跳请求，以证明它还存活。当Coordinator决定开启新一轮重平衡后，它就会向心跳请求的Response中加入**REBALANCE_IN_PROGRESS**，消费者收到这个响应后，就可以知道新一轮重平衡开始了，这就是重平衡的通知机制！重平衡一旦开启，Broker 端的协调者组件Coordinator就要开始忙了，主要涉及到控制消费者组的状态流转，主要有这5个状态：
+
+| 状态                | 含义                                                         |
+| ------------------- | ------------------------------------------------------------ |
+| Empty               | 组内没有任何成员，但消费者可能存在已提交的位移数据，而且这些位移尚未过期 |
+| Dead                | 组内没有任何成员，但组的元数据信息已经在Coordinator端被移除  |
+| PreparingRebalance  | 消费者组准备开启重平衡，此时所有成员都要重新请求加入消费组   |
+| CompletingRebalance | 消费组下的所有成员已经加入，各个成员正在等待分配方案         |
+| Stable              | 稳定状态，表明重平衡已经完成，组内各个成员可以正常消费数据   |
+
+**消费组状态流转：**
+
+![](./images/kafka状态机的状态流转.png)
+
+### 4.2.1.Consumer
+
+kafka的重平衡需要消费者和协调者共同完成，消费者在重平衡过程需要做的事有两个：
+
+- **发起JoinGroup请求，加入组；**
+
+  Consumer向Coordinator发送JoinGroup请求，附带上自己订阅的Topic信息。Coordinator收集了所有组成员的请求后，一般会选择第一个发送JoinGroup请求的Consumer作为领导者Leader。Coordinator会将成员订阅的Topic信息封装到JoinGroup响应发给Leader，由它来分配分区消费
+
+- **发起SyncGroup请求，等待Leader消费者的分配方案**
+
+  所有consumer都会向coordinator发送SyncGroup请求，除了Leader以外，其它消费者的请求体为空。这样coordinator收到分配方案之后，就可以统一以SyncGroup响应的方式分发给组内的成员，此时，组内的所有成员就知道自己该消费哪些分区，与其建立TCP连接。
+
+### 4.2.2.Coordinator
+
+Coordinator重平衡场景有4个：新成员加入、组成员离开、组成员崩溃、组成员提交位移。
+
+**①新成员入组**
+
+原先消费组处于Stable状态，如果有新成员加入，Coordinator会收到 JoinGroup 请求，它就会通过心跳请求响应的方式通过当前组的所有成员
+
+![](./images/kafka重平衡-新成员入组.png)
+
+**②组成员离开**
+
+消费者实例所在线程或进程调用 close() 方法主动通知协调者它要退出，会向Coordinator发出LeaveGroup请求，Coordinator收到LeaveGroup请求就会以在心跳响应通知其它成员开启重平衡
+
+![](./images/kafka重平衡-组成员离组.png)
+
+**③组成员崩溃**
+
+如果消费者所在服务器宕机，在一段时间`session.timeout.ms`后，coordinator会因为收不到消费者的心跳请求，而判断它已经宕机，还是会在心跳响应中通知其它成员开启新一轮重平衡
+
+![](./images/kafka重平衡-组成员崩溃.png)
+
+**④组成员提交位移**
+
+每个组内成员都会定期汇报位移给协调者。当重平衡开启时，协调者会给予成员一段缓冲时间，要求每个成员必须在这段时间内快速地上报自己的位移信息，然后再开启正常的 JoinGroup/SyncGroup 请求发送
+
+![](./images/kafka重平衡-组成员提交位移.png)
+
 ## 4.3.控制器
 
+kafka控制器，是在Broker集群选出唯一 一个Broker，让它成为Controller，借助于Zookeper管理和协调kafka集群。集群中的Broker在启动时，会向zookeeper创建`/controller` 节点，根据zookeeper的特性，有且只有一个Broker能创建成功，它就会成为Controller。
 
+zookeeper还有一个与控制器相关的`/controller_epoch`节点，这个节点是持久节点，节点中存放的是一个整型的controller_epoch值。controller_epoch用于记录控制器发生变更的次数，即记录当前的控制器是第几代控制器，也可以称为“控制器的纪元”
 
+### 4.3.1.作用
 
+控制器主要有5个职责：
 
-# 6.存储结构
+- 主题管理：创建、删除、增加分区
+- 分区重分配
+- Preferred 领导者选举
+- 集群成员管理：新增Broker、Broker主动关闭、Broker宕机
+- 数据服务
+
+![](./images/kafka控制器保存的数据.png)
+
+kafka的控制器具有**Failover**特性，当Broker集群中的一个控制器宕机了，zookeeper会通知watch机制告诉kafka其他Broker，它们就可以重新发起创建/Controller的请求，创建成功的Broker就会成为新的控制器
+
+### 4.3.2.设计原理
+
+kafka社区于 0.11 版本重构了控制器的底层设计，最主要的实现：**把多线程的方案改成了单线程加事件队列的方案**。
+
+①只开启一个事件处理线程，负责消费Event Queue的事件；
+
+②对Zookeeper的同步操作，改为异步操作（原先是有大量主题分区发生变更时，zookeeper不适合写多的场景，会造成kafka集群的性能瓶颈）
+
+③控制器会赋予控制类请求更高的优先级。
+
+![](./images/kafka控制器设计原理.png)
+
+# 5.存储结构
 
 每一个partition相当于一个巨型文件，被平均分配到多个大小相等的segment（段）数据文件里。但每一个segment file消息数量不一定相等，这样的特性方便old segment file高速被删除，默认情况下每一个segment file文件大小为1G。partition仅仅只要支持顺序读写即可，segment文件生命周期由服务器配置参数决定。
 
 segment file由两大部分组成：index file和data file，后缀`.index`和`.log`分别表示sgement索引文件、数据文件
 
-## 6.1.日志索引
+## 5.1.日志索引
 
-### 6.1.1.数据文件分段
+### 5.1.1.数据文件分段
 
 比如说有100条message，它们的offset是从0~99，假设将数据分为5段，依次为0-19,20-39,40-59...以此类推，每段放在一个单独的数据文件里面，数据文件以该段中最小的offset命名。这样再查找指定offset的Message时，用二分查找就可以定位到该Message在哪个段中
 
-### 6.1.2.偏移量索引
+### 5.1.2.偏移量索引
 
 在数据文件分段的基础上，kafka为每个分段后的数据文件建立了索引文件，文件名与数据文件的名字是一样的，只是文件扩展名为`.index`。
 
@@ -337,9 +417,9 @@ segment file由两大部分组成：index file和data file，后缀`.index`和`.
 
 这套机制是建立在offset是有序的，索引文件被映射到内存中，所以查找的速度还是很快的。总而言之，kafka的消息存储采用了分区（partition）、分段（LogSegment）和稀疏索引等方式以实现高效性！
 
-## 6.2.日志清理
+## 5.2.日志清理
 
-### 6.2.1.日志删除
+### 5.2.1.日志删除
 
 kafka日志管理器允许订制删除策略，默认策略是删除修改时间N天之前的日志（也就是按时间删除），也可以使用另外一个策略，保留最后的N GB数据的策略（按大小删除）。同时，为了避免在删除的时候阻塞读操作，采用了copy-on-write形式的实现，删除操作进行时，读取操作的二分查找功能实际是在一个静态的快照副本上进行，这类似于java的CopyOnWriteArrayList
 
@@ -352,11 +432,11 @@ log.retention.hours=16
 log.retention.bytes=1073741824
 ```
 
-### 6.2.2.日志压缩
+### 5.2.2.日志压缩
 
 将数据压缩，只保留每个key最后一个版本的数据。首先在broker的配置中设置`log.cleaner.enbale=true`启用cleaner，这个默认是关闭的。在Topic的配置中设置`log.cleanup.policy=compact`启用压缩策略
 
-## 6.3.磁盘存储
+## 5.3.磁盘存储
 
 kafka实现高吞吐量的存储原因：
 
@@ -364,21 +444,21 @@ kafka实现高吞吐量的存储原因：
 - 页缓存
 - 零拷贝
 
-### 6.3.1消息顺序追加
+### 5.3.1消息顺序追加
 
 kafka在设计的时候，采用文件追加的方式来写入消息，即只能在日志文件的尾部追加新的消息，并且不允许修改已经写入的消息，这种方式属于典型的顺序写入操作。
 
-### 6.3.2.页缓存
+### 5.3.2.页缓存
 
 kafka中大量使用页缓存，也是kafka实现高吞吐量的重要因素之一
 
-### 6.3.3.零拷贝
+### 5.3.3.零拷贝
 
 kafka零拷贝技术只用将磁盘文件的数据复制到页面缓存一次，就可以将数据从页面缓存直接发送到网络中（发送给不同的订阅者时，都可以使用同一个页面缓存），避免重复操作。例如：假设有10个消费者，传统方式下，数据复制次数为4*10=40次，而使用零拷贝技术，只要1+10=11次，一次为从磁盘复制到页面缓存，10次表示10个消费者各自读取一次页面缓存。
 
 # 7.稳定性
 
-## 7.1.消息交付可靠性保证
+## 6.1.消息交付可靠性保证
 
 消息交付可靠性保障，是指 Kafka 对 Producer 和 Consumer 要处理的消息提供什么样的承诺，默认的承诺有以下三种：
 
@@ -388,7 +468,7 @@ kafka零拷贝技术只用将磁盘文件的数据复制到页面缓存一次，
 
 kafka是通过幂等性（Idempotence）和事务（Transaction）来实现上面的三种承诺。
 
-### 7.1.1.幂等性
+### 6.1.1.幂等性
 
 幂等性是与Producer相关的，例如：Producer给Broker发送一条消息，由于发生网络异常，导致Producer未收到Broker的`ack`响应，它会重试发送。在Producer进行重试的时候，Broker就有可能会重复写入消息。
 
@@ -397,9 +477,9 @@ kafka是通过幂等性（Idempotence）和事务（Transaction）来实现上�
 - 幂等性属于会话级别，kafka只能保证producer在单个会话内不丢不重，如果producer出现宕机再重启是无法保证幂等的（无法获取之前的幂等状态信息）
 - 幂等性不能跨Partition，保证某个Topic的一个Partition上不出现重复消息
 
-如果想实现多分区或者多会话上的消息无重复，就只能使用事务！！！
+<span style="color:red">如果想实现多分区或者多会话上的消息无重复，就只能使用事务！！！</span>
 
-### 7.1.2.事务
+### 6.1.2.事务
 
 Kafka 自 0.11 版本开始也提供了对事务的支持，kafka的事务类似数据库的事务，目前的隔离级别为读-已提交（read-committed）。事务可以保证对多个分区写入操作的原子性，即多个操作要么全部成功，要么全部失败；而且，进程的重启不会影响kafka的事务，依然能保证消息发送的原子性。kafka的事务和幂等性一样，都是针对Producer配置的，只要设置
 
@@ -434,57 +514,104 @@ try {
 - read_uncommitted，默认值，表示Consumer可以读取到kafka的任何消息，论事务型 Producer 提交事务还是终止事务，其写入的消息都可以读取。如果Producer开启事务，Consumer就不能配置这个值
 - read_committed，表示Consumer 只会读取事务型 Producer 成功提交事务写入的消息。当然了，它也能看到非事务型 Producer 写入的所有消息。
 
-事务，其实就是在幂等性的基础上，实现了跨分区 + 跨会话。但是，事务的性能比较差，最好只在高一致性的业务场景中使用kafka的事务！！！例如：在Kafka Streams中。如果要实现流处理中的精确一次语义，事务是不可少的。
+事务，其实就是在幂等性的基础上，实现了跨分区 + 跨会话。但是，事务的性能比较差，最好只在高一致性的业务场景中使用kafka的事务！！！例如：在Kafka Streams中。如果要实现流处理中的精确一次语义，事务是不可少的。kafka的事务，主要的机制是两阶段提交（2PC），引入了事务协调器的组件帮助完成分布式事务，这个有空去研究一下下～～
 
-kafka的事务，主要的机制是两阶段提交（2PC），引入了事务协调器的组件帮助完成分布式事务，这个有空去研究一下下～～
+## 6.3.副本数据一致性保证
 
-## 7.3.控制器
+### 6.3.1.何为高水位？
 
-在kafka集群中会有一个或者多个broker，其中有一个broker会被选举为控制器（kafka Controller），它负责管理整个集群中所有分区和副本的状态。当某个分区的leader副本出现故障时，由控制器负责为该分区选举新的leader副本。当检测到某个分区的ISR集合发送变化时，由控制器负责通知所有broker更新其元数据信息。当使用kafka-topics.sh脚本为某个topic增加分区数量时，同样还是由控制器负责分区的重新分配
+水位一词多用于流式处理领域，什么是水位？下图标注`Completed`的蓝色部分代表已完成的工作，标注`In-Flight`的红色部分代表正在进行中的工作，两者的边界就是水位线：
 
-kafka中的控制器选举的工作依赖于zookeeper，成功竞选为控制器的broker会在zookeeper中创建/controller这个临时节点。zookeeper还有一个与控制器相关的/controller_epoch节点，这个节点是持久节点，节点中存放的是一个整型的controller_epoch值。controller_epoch用于记录控制器发生变更的次数，即记录当前的控制器是第几代控制器，也可以称为“控制器的纪元”
+![](./images/水位在流式处理的定义.png)
 
-## 7.4.一致性保证
+在kafka中，水位就是指高水位（因为kafka源码就定义的变量名就是高水位），全称是High Watermark，简称HW。kafka也有低水位，与删除消息相关的，而kafka的高水位是跟消息在partition的offset有关。kafka中的高水位指的是：Broker对Producer发过来的消息落地到日志文件后，会认为这些消息就是已提交的消息，而高水位就是指处于还未落地到日志文件中的消息与已提交消息之间的分界线。换句话说，高水位下的消息才能被消费者消费。不过，对于kafka事务就不一定了，kafka事务需要依靠一个名为 LSO（Log Stable Offset）的位移值来判断事务型消费者的可见性，并不仅仅依靠高水位~！
 
-### 7.4.1.HW截断机制
+![](./images/kafka高水位图示.png)
 
-在leader宕机后，控制器从ISR列表中选取新的leader，新的leader并不能保证已经完全同步了之前leader的所有数据，只能保证HW之前的数据是同步过的，此时所有的follower都要讲数据截断到HW的位置，再和新的leader同步数据，来保证数据一致。当宕机的leader恢复，发现新的leader种的数据和自己持有的数据不一样，此时宕机的leader会将自己的数据截断到宕机之前的HW位置，然后同步新leader的数据。
+上图有两个点需要注意：
 
-### 7.4.2.数据丢失场景
+- **位移值等于高水位的消息属于未提交消息。即高水位上的消息是不能被消费者消费的**；
+- **日志末端位移，即Log End Offset，简写是 LEO，表示副本写入下一条消息的位移值；**
 
-场景1：
+partition的**所有副本**都有HW和LEO，只不过Leader副本的HW被定义为该partition的高水位。实际上，Leader副本所在的Broker，还会保存其它Follower副本的LEO值，这些Follower副本也称为远程副本。Kafka副本机制会更新Follower副本的HW和LEO的值，同时也会更新Leader副本的HW和LEO以及它保存的所有远程副本的LEO，但是不会更新远程副本的HW值。远程副本的作用就是帮助Leader副本确定该分区的高水位。
+
+### 6.3.2.副本同步机制
+
+kafka通过HW和LEO的更新机制来完成partition的leader副本和follower副本的数据同步：
+
+**Leader副本**
+
+- 处理生产者请求
+  - 将producer发来的消息下入到本地磁盘
+  - 更新分区高水位HW
+    1. 获取Leader副本所在Broker保存的所有远程副本的LEO值，假设为array
+    2. 获取Leader副本当前高水位值，假设为h
+    3. 更新Leader副本当前高水位值 = min(h, array)
+
+- 处理Follower副本同步数据请求：
+  - 读取磁盘/页缓存中的消息数据
+  - 使用Follower副本发送请求中的位移值（follower会告诉leader要从哪个offset开始拉取），更新远程副本的LEO值
+  - 更新Leader副本当前高水位值，跟处理producer消息一样，取远程副本的LEO值，假设array，取当前高水位h，取min(h, array)
+
+**Follower副本**
+
+Follower只有从Leader拉取消息才会更新HW和LEO值
+
+- 封装请求加入要拉取的消息的offset，发送给Leader
+- Leader响应，写入消息到本地磁盘
+- 更新LEO值
+- 更新高水位值
+  - 获取第二步Leader响应中的高水位值，假设为h
+  - 获取第三步更新过的LEO值，假设为e
+  - 更新Followe副本的高水位为min(h, e)
+
+一个完整的副本数据同步过程如下：
+
+①假设一个分区分为了2个副本，一个Leader和一个Follower，初始状态下，所有HW和LEO的值都为0
+
+![](./images/kafka副本同步过程_1.png)
+
+②生产者给分区发送了一条消息，Leader副本成功将消息写入本地磁盘中，故LEO值就被更新为1。Follower再次尝试向Leader同步数据，由于Leader的LEO值已经更新，即有数据可以同步。所以Follower也会更新LEO为1。此时，Leader和Follower副本的LEO都为1，但是HW仍为0，需要在下一轮的拉取中更新：
+
+![](./images/kafka副本同步过程_2.png)
+
+③新一轮请求中，Follower会向Leader拉取offset=1的消息（offset为0的消息在上面拉取完了），Leader收到请求后，更新它所在Broker的远程副本的LEO为1，再更新Leader的HW为1，最后它会把已更新过的HW放到拉取请求的响应返回为Follower。Follower收到响应后，也会更新自己的HW为1
+
+![](./images/kafka副本同步过程_3.png)
+
+一次完整的消息同步周期就结束了，Kakfa就是利用HW和LEO的更新机制，实现Leader副本和Follower副本之间的数据同步！！！
+
+### 6.3.3.HW截断机制
+
+HW截断机制，用在Leader副本所在的Broker宕机以后，[控制器](#4.3.控制器)从ISR列表中选取新的Leader副本，但是新的Leader副本并不能保证已经完全同步了之前Leader的所有数据，只能保证HW之前的数据是同步过的。此时所有的Follower都要将数据截断到HW的位置，再和新的Leader副本同步数据，来保证数据一致。当宕机的旧Leader恢复，发现新的Leader副本中的数据和自己持有的数据不一样，此时宕机恢复的旧Leader会将自己的数据截断到宕机之前的HW位置，然后同步新Leader的数据，这就是kafak的HW截断机制。但是，这个机制会导致消息存在一些问题，具体场景有两个：
+
+**场景一：消息丢失**
+
+下图中有两个副本：A和B，其中A是leader。假设producer端`min.insync.replicas=1`，当producer发送两条消息给A后，A会更新它的LEO为2，由于副本机制的缘故，B同步A的数据后，也会更新它的LEO为2。由于消息已落地磁盘，所以A的HW为更新为2。
+
+通过前面的副本同步机制的分析，B的HW会等到下次拉取的时候才会更新，即目前B的HW仍然为1。倘若此时副本B所在的broker宕机，那么重启回来后B会自动把LEO调整到之前的HW值，故副本B会做日志截断，将offset = 1的那条消息从log中删除，并调整LEO = 1，此时follower副本底层log中就只有一条消息，即offset = 0的消息
+
+B重启之后需要给A发FETCH请求，不巧的是，A所在broker机器在此时宕机，那么Kafka会令B成为新的leader，而当A重启回来后也会执行日志截断，更Leader副本也就是B同步数据，最终A将HW调整回1。这样，offset=1的消息就从两个副本的log中被删除，即永远地丢失了
 
 ![](./images/kafka水位-数据丢失-情况1.png)
 
-上图中有两个副本：A和B，其中A是leader。假设producer端`min.insync.replicas=1`，当producer发送两条消息给A后，A写入到底层log，此时Kafka会通知producer说这两条消息写入成功。
+**场景二：数据不一致**
 
-但是在broker端，leader和follower底层的log虽都写入了2条消息且leader HW已经被更新到1，但follower HW尚未被更新（也就是上面紫色颜色标记的第二步尚未执行）。倘若此时副本B所在的broker宕机，那么重启回来后B会自动把LEO调整到之前的HW值，故副本B会做日志截断(log truncation)，将offset = 1的那条消息从log中删除，并调整LEO = 1，此时follower副本底层log中就只有一条消息，即offset = 0的消息。
+A依然是leader，A的log写入了2条消息，但B的log只写入了1条消息。分区HW更新到2，但B的HW还是1，同时producer端的`min.insync.replicas = 1`。
 
-B重启之后需要给A发FETCH请求，但若A所在broker机器在此时宕机，那么Kafka会令B成为新的leader，而当A重启回来后也会执行日志截断，将HW调整回0。这样，位移=1的消息就从两个副本的log中被删除，即永远地丢失了
-
-场景2：
+如果A和B所在机器同时挂掉，然后假设B先重启回来，因此成为leader，分区HW = 1。假设此时producer发送了第3条消息(绿色框表示)给B，于是B的log中offset = 1的消息变成了绿色框表示的消息，同时分区HW更新到2。之后A重启回来，需要执行日志截断，但发现此时分区HW=1，而A之前的HW值也是1，故不做任何调整。此后A和B将以这种状态继续正常工作，这就导致了A和B在offset=1的消息不一样，出现数据不一致问题！！
 
 ![](./images/kafka水位-数据丢失-情况2.png)
 
-A依然是leader，A的log写入了2条消息，但B的log只写入了1条消息。分区HW更新到1，但B的HW还是0，同时producer端的`min.insync.replicas = 1`
+### 6.3.3.leader epoch
 
-如果A和B所在机器同时挂掉，然后假设B先重启回来，因此成为leader，分区HW = 0。假设此时producer发送了第3条消息(绿色框表示)给B，于是B的log中offset = 1的消息变成了绿色框表示的消息，同时分区HW更新到1。之后A重启回来，需要执行日志截断，但发现此时分区HW=1而A之前的HW值也是1，故不做任何调整。此后A和B将以这种状态继续正常工作
+上面两种场景的根本原因在于HW值被用于衡量副本备份的成功与否，以及出现failure时作为日志截断的依据。但是HW值的更新是异步的，尤其是需要FETCH请求处理流程才能更新，故期间如果发生崩溃都可能导致HW值过期。所以，kafka 0.11引入了leader epoch来取代HW值，所谓leader epoch就是基上一对— `(epoch,offset)`，`epoch`表示leader的版本号，从0开始，当leader变更过1次后`epoch`就会+1，而`offset`对应于该`epoch`版本的leader写入第一条消息的位移。例如：(0, 0)、(1, 120)，表示第一个leader从位移0开始写入消息，共写了120条[0,119]；而第二个leader版本号是1，从位移120处开始写入消息。broker会保存这样一个缓存，并定期写入一个checkpoint文件中，避免文件丢失
 
-### 7.4.3.leader epoch
-
-上面两种场景的根本原因在于HW值被用于衡量副本备份的成功与否以及出现failure时作为日志截断的一句，但是HW值的更新是异步的，尤其是需要FETCH请求处理流程才能更新，故期间如果发生崩溃都可能导致HW值过期。所以，kafka 0.11引入了leader epoch来取代HW值，所谓leader epoch就是基上一对值— `(epoch,offset)`，`epoch`表示leader的版本号，从0开始，当leader变更过1次后`epoch`就会+1，而`offset`对应于该`epoch`版本的leader写入第一条消息的位移。例如：
-
-(0, 0)
-
-(1, 120)
-
-表示第一个leader从位移0开始写入消息，共写了120条[0,119]；而第二个leader版本号是1，从位移120处开始写入消息。broker会保存这样一个缓存，并定期写入一个checkpoint文件中，避免文件丢失
-
-针对场景1：
+**针对场景1：消息丢失**
 
 ![](./images/kafka水位-数据丢失-情况1-解决.png)
 
-针对场景2：
+**针对场景2：消息不一致**
 
 ![](./images/kafka水位-数据丢失-情况2-解决.png)
 
@@ -529,5 +656,3 @@ A依然是leader，A的log写入了2条消息，但B的log只写入了1条消息
 - Consumer配置
 
   - 创建Consumer时，配置` enable.auto.commit=false`，采用手动提交位移的方式，确保消息消费完成再提交
-
-    

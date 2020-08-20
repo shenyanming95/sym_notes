@@ -1133,3 +1133,4 @@ redis-trib.rb是redis官方推出的管理redis集群的工具，集成在redis�
 | cluster countkeysinslot \<slot>               | 返回槽slot目前包含的键值对数量                               |
 | cluster getkeysinslot \<slot>  \<count>       | 返回count个slot槽中的键                                      |
 
+ 

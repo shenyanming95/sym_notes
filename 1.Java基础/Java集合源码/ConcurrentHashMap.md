@@ -1,0 +1,1 @@
+ConcurrentHashMap只提供原子性的读写操作，如put、putIfAbsent、computeIfAbsent...，对于size、isEmpty和ContainsValue等方法，可能会返回中间状态，在高并发环境下，这些方法的返回值只能作为参考，不要用于流程控制

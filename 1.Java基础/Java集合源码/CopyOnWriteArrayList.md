@@ -1,5 +1,7 @@
 java.util.concurrent.CopyOnWriteArrayList是在JDK1.5的时候发布的，它可以理解是ArrayList的扩展，或者说是它的线程安全解决方案。CopyOnWriteArrayList，简称COW，采用了一种`读写分离`思想，将List的`读操作`和`写操作`划分开来，以达到并发读写的功能。
 
+不过，CopyOnWriteArrayList适合读多写少的并发场景，如果业务写的逻辑多，使用它反而效率不高，毕竟它需要拷贝数据
+
 # 1.ArrayList非线程安全
 
 首先需要知道为啥ArrayList是非线程安全的？

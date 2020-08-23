@@ -881,6 +881,40 @@ void init(Channel channel) throws Exception {
 }
 ```
 
+其中的ServerBootstrapAcceptor是ServerBootstrap的内部类，它也是一个ChannelInboundHandler，所以它也会有channelRead0()方法，源码为：
+
+```java
+// 源码：ServerBootstrap$ServerBootstrapAcceptor - 243行
+public void channelRead(ChannelHandlerContext ctx, Object msg) {
+    // 会接收ServerSocketChannel获取到的SocketChannel，也就是参数msg
+    final Channel child = (Channel) msg;
+    // 加入我们在ServerBootstrap设置的childHandler
+    child.pipeline().addLast(childHandler);
+    // 设置一些属性和参数值
+    setChannelOptions(child, childOptions, logger);
+    for (Entry<AttributeKey<?>, Object> e: childAttrs) {
+        child.attr((AttributeKey<Object>) e.getKey()).set(e.getValue());
+    }
+    try {
+        // 注意：然后会将当前获取到的SocketChannel注册到childGroup中，这个childGroup
+        // 就是我们在ServerBootstrap初始化的时候创建的：
+        // EventLoopGroup workerGroup = new NioEventLoopGroup();
+        // 即证明了Netty确实是使用了主从Reactor模式，把Channel的监听交给BossGroup就是Main 
+        // Reactor，把Channel的读写交给WorkerGroup就是Sub Reactor
+        childGroup.register(child).addListener(new ChannelFutureListener() {
+            @Override
+            public void operationComplete(ChannelFuture future) throws Exception {
+                if (!future.isSuccess()) {
+                    forceClose(child, future.cause());
+                }
+            }
+        });
+    } catch (Throwable t) {
+        forceClose(child, t);
+    }
+}
+```
+
 #### 1.4.2.2.addList()
 
 ChannelPipeline可以添加多个ChannelHandler，形成一个处理器链。实际上每个添加进来的ChannelHandler，Channelpipeline都会为其生成一个ChannelHandlerContext，而它内部实际维护的是ChannelHandlerContext链表。addList()有多个重载方法，最全的有3个参数，以默认实现类DefaultChannelPipeline为例，源码为：
@@ -1437,3 +1471,4 @@ public void execute(Runnable task) {
 
 ....
 
+# 3.源码：内存分配

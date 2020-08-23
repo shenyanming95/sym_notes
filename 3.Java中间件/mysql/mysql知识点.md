@@ -74,36 +74,38 @@
     <td>确保事务可以从一个表中读取相同的行，在这个事务持续期间，禁止其它事务对该表执行插入符。更新和删除操作，所有并发问题都可以避免，但性能十分低</td>
   </tr>
 </table>
-
-![](./images/mysql事务隔离级别.png)
-
-数据库的事务隔离越严格，并发副作用越小，但付出的代价也就越大，因为事务隔离实质上就是使事务在一定程度上“串行化”进行，显然与“并发”是矛盾的。查看当前数据库的事务隔离级别：
+数据库的事务隔离越严格，并发副作用越小，但付出的代价也就越大，因为事务隔离实质上就是使事务在一定程度上“串行化”进行，显然与“并发”是矛盾的。mysql默认是可重复读级别，即解决了脏读和不可重复读。查看当前数据库的事务隔离级别：
 
 ```sql
 show variables like 'tx_isolation';
 ```
 
-mysql默认是可重复读级别，即解决了脏读和不可重复读
+# 2.MySQL执行计划
 
-# 2.性能分离explain
-
-## 2.1.explain是什么
-
-回首mysql的架构，在第二层有一个Mysql Query Optimizer，是MySQL官方提供的查询优化器，它负责优化select语句，为客户端请求的Query提供MySQL自己认为最优的执行计划（是mysql的观念，不是DBA的想法）。
-
-explain关键字，可以模拟优化器执行SQL查询语句，从而知道Mysql是如何处理程序员的SQL语句的，分析查询语句或表结构的性能瓶颈，它的语法很简单：explain+sql语句，就如 :
+回首MySQL架构，在第二层有一个Mysql Query Optimizer，是MySQL官方提供的查询优化器，它负责优化select语句，为客户端请求的SQL提供MySQL自己认为最优的执行计划；通过`explain`关键字，可以模拟优化器执行SQL查询语句，分析查询语句或表结构的性能瓶颈。它的语法很简单，直接在SQL前面加`explain`关键字即可
 
 ```sql
-explain select  * from  t_dept
+explain select * from  t_dept
 ```
 
-## 2.2.解析explain信息
+**explain关键字字段描述：**
 
-用explain关键字查询出来结果，会以下面的表格形式展示，接下来，就是解析每一个字段表示的意思
+| 列名          | 描述                                                 |
+| ------------- | ---------------------------------------------------- |
+| id            | 与SELECT关键字一一对应                               |
+| select_type   | SELECT关键字对应的查询的类型                         |
+| table         | 表名                                                 |
+| partitions    | 匹配的分区信息                                       |
+| type          | 单表的访问方式                                       |
+| possible_keys | 可能会用到的索引                                     |
+| key           | 实际使用的索引                                       |
+| key_len       | 实际使用到的索引长度                                 |
+| ref           | 使用索引列等值查询时，与索引列进行等值匹配的对象信息 |
+| rows          | 预估计的需要读取的记录条数                           |
+| filtered      | 单表经过搜索条件过滤后剩余记录条数的百分比           |
+| Extra         | 一些额外的信息                                       |
 
-![](./images/explain属性信息.png)
-
-### 2.2.1.id
+## 2.1.id
 
 id是select识别符，也是select查询的序列号，包含一组数字用来表示查询中执行select子句或操作表的**顺序**！
 
@@ -129,7 +131,7 @@ id是select识别符，也是select查询的序列号，包含一组数字用来
 
 derived是衍生的意思，即sql语句中的s1，表示衍生表。derived2中的2，表示这个衍生表是由id=2执行的那个表(即t3)衍生出来的。
 
-### 2.2.2.select_type，table
+## 2.2.select_type, table
 
 - table：指明这一行的数据是关于哪张表的
 
@@ -147,11 +149,11 @@ derived是衍生的意思，即sql语句中的s1，表示衍生表。derived2中
 
   - union result，从union表获取结果的select。
 
-### 2.2.3.type(重要)
+## 2.3.type
 
 type，字面意思是访问类型排列，表示SQL语句的查询效率，常用的取值有：
 
-![](./images/explain之type.png)
+`ALL、index、range、ref、eq_ref、const、system、null`
 
 性能从最好到最坏依次是：null > system > const > eq_ref > ref > range > index > all。 一般来说，得保证查询至少达到range级别，最好能达到ref！
 
@@ -199,13 +201,11 @@ id是表t1的主键，所以select id就是直接从索引里面遍历
 
 7. **all**
 
-all类型会遍历全表找到匹配行
+all类型会遍历全表找到匹配行，不使用索引，就只能全表扫描
 
 ![](./images/explain之type-all.png)
 
-不使用索引，就只能全表扫描
-
-### 2.2.4.possible_keys, key
+## 2.4.possible_keys, key
 
 - possible_keys，指明执行SQL语句时，理论上需要用到的索引列表，若查询涉及到的字段上存在索引，则该索引被列出，但不一定实际使用；
 - key，表示实际使用的索引，如果为Null，则没有使用索引，若查询使用覆盖索引，则该索引仅会出现在key列表中(覆盖索引：select查询的字段正好和创建索引时用的列一致)
@@ -218,7 +218,7 @@ all类型会遍历全表找到匹配行
 
 理论上没有用到索引(possible_keys为null)，但实际上用到idx_col1_col2索引，这就是覆盖索引。查询的字段是col1、col2，正好与创建的复合索引idx_col1_col2的列和列顺序一样，所以只显示在key列表中，possaible_key显示null
 
-### 2.2.5.explain之key_len
+## 2.5.key_len
 
 key_len指明索引中使用到的字节数，通过该列计算出查询时使用的索引长度
 
@@ -226,7 +226,7 @@ key_len指明索引中使用到的字节数，通过该列计算出查询时使�
 
 当查询条件col1='ab'，用到的索引字节数为13，当加了一个查询条件，col1='ab' and col2='ac'，用到的索引字节数为26。当查询结果一样的前提，key_len越小越好，但是这是不可能的。想让马跑的远又不给马吃草，这是不符合逻辑规律的。当查询条件越多，用的key_len就会越大，得出的结果就会越精确
 
-### 2.2.6.ref
+## 2.6.ref
 
 ref，表示哪些列或常量被用于查找索引列上的值，如果使用的是常数等值查询，ref会显示const；如果是连接查询，ref会显示驱动表的关联字段；如果使用表达式或者函数，或条件列发生了内部隐式转换，ref可能显示为func
 
@@ -240,7 +240,7 @@ id值相同，执行顺序由上至下，此条SQL的表查询顺序是t1，t3�
 
 - 查询t2时，ref=test.t1.ID，意思也是用test数据库的t1表的ID列，因为查询t2的sql语句为 where t1.id = t2.id，跟查询t3表的语句时一样的
 
-### 2.2.7.rows
+## 2.7.rows
 
 rows，根据表统计信息及索引选用情况，大致估算出找到所需记录要读取的行数
 
@@ -248,7 +248,7 @@ rows，根据表统计信息及索引选用情况，大致估算出找到所需�
 
 当没有创建索引，查询t2表的type类型是all，说明是全表扫描，Mysql估算出需要读取640行才能得到sql语句想要的结果。用了索引后，mysql估算出可能要读取的行数是142行
 
-### 2.2.8.extra
+## 2.8.extra
 
 extra，包含不适合在列中显示但十分重要的额外信息。最重要的3个取值： using filesort、using temporary 、using index
 
@@ -276,9 +276,9 @@ using index的出现，表示效率不错，是良好的表现。它表示相应
 
 # 3.MySQL索引
 
-## 3.1.什么是索引?
+## 3.1.索引概念
 
-Mysql官方对索引的定义：索引（Index）是帮助Mysql高效获取数据的数据结构请记住，索引是一种数据结构。是什么样的数据结构？排好序的快速查找数据结构即b+树，它的作用是排序和快速查找
+MySQL官方对索引的定义：索引（Index）是帮助Mysql高效获取数据的数据结构请记住，索引是一种数据结构。是什么样的数据结构？排好序的快速查找数据结构即b+树，它的作用是排序和快速查找
 
 ![](./images/mysql索引.png)
 
@@ -299,8 +299,6 @@ Mysql官方对索引的定义：索引（Index）是帮助Mysql高效获取数�
 2、复合索引：一个索引包含多个列
 
 3、唯一索引：索引列的值必须唯一，允许有空值
-
-实际运用中，用复合索引的情况比较多，正如京东商城一样，搜索商品时，不可能搜索条件只有一个，肯定是多个条件一起搜索
 
 ## 3.3.索引原理
 
@@ -438,17 +436,18 @@ like以通配符开头（'%xxx...'）mysql索引失效会变成全表扫描的�
 
 ### 4.1.1.小表驱动大表
 
-优化原则：永远保持小的数据集驱动大的数据集！
+优化原则：**永远保持小的数据集驱动大的数据集！**比如`in`和`exist`：
 
-in和exists的区别：in作用于子查询，exists作用于主查询！因为in是将子查询的结果用于主查询的条件匹配，所以如果子查询的表数据集小于主查询表的数据集，推荐用in
+- `in`作用于子查询，它是将子查询的结果用于主查询的条件匹配，若子表数据集小于主表数据集，用`in`；
+- `exist`作用于主查询，它是将主查询的数据放到子查询中做条件验证，根据验证结果(true或false)来决定主查询的数据结果是否得以保留，若子表数据集大于主表数据集，用`exist`
 
-![](./images/小表驱动大表_1.png)
+```sql
+select * from A where id in(select id from B)
+-- 等价于
+select * from A where exists(select 1 from B where B.id=A.id)
+```
 
-exists的原理跟in不一样，它是将主查询的数据放到子查询中做条件验证，根据验证结果(true或false)来决定主查询的数据结果是否得以保留。所以如果子查询的表数据集大于主查询表的数据，就该用exists
-
-![](./images/小表驱动大表_2.png)
-
-### 4.1.2.order by优化
+### 4.1.2.ORDER BY
 
 MySQL支持2种方式的排序：
 
@@ -456,69 +455,53 @@ MySQL支持2种方式的排序：
 
 2. 索引排序using index
 
-根据性能分析explain可得，出现filesort表示系统性能出现问题，所以要让MySQL使用index索引排序，需要满足下面两种情况的任意一种：
+根据性能分析explain可得，出现filesort表示系统性能出现问题，所以要让MySQL使用index索引排序，需要满足下面情况的任意一种：
 
-①**order by语句使用索引最左前列；**
+- 排序的列必须也是是索引列
 
-②**where与order by子句条件列组合满足索引最左前列** 
+- 索引最左列（上例中的a列）一定要体现
 
-<img src="./images/排序使用索引的情况.png" style="zoom:80%;" />
+- 排序列要么同升序要么同降序
 
-上表总结了order by要使用到index排序的情况：
-
-1、排序的列必须也是是索引列
-
-2、索引最左列（上例中的a列）一定要体现
-
-3、排序列要么同升序要么同降序
-
-### 4.1.3.group by优化
+### 4.1.3.GROUP BY
 
 group by与order by大致一样，以下三种情况是group by独有的：
 
-1. group by实质是先排序后进行分组，遵循创建索引时的最佳左前缀法则；
+- group by实质是先排序后进行分组，遵循创建索引时的最佳左前缀法则
 
-2. 当无法使用索引列，在Mysql配置文件中增大max_length_for_sort_data参数和sort_buffer_size参数的值；
+- 当无法使用索引列，在Mysql配置文件中增大max_length_for_sort_data参数和sort_buffer_size参数的值
 
-3. where高于having，能写在where限定的条件就不要去having限定了。
+- where高于having，能写在where限定的条件就不要去having限定了
 
 ## 4.2.慢查询日志
 
-### 4.2.1.定义
-
-MySQL的慢查询日志，用来**记录响应时间超过阙值的sql语句**，具体指运行时间超过long_query_time值的sql，就会被记录到慢查询日志中。long_query_time的默认值为10，意思是运行10秒以上的语句（不包括10）
-
-### 4.2.2.说明
-
-默认情况下，慢查询日志是关闭的。如果不是为了调优，不建议启动该参数，会带来性能的影响，查看是否开启：
+MySQL的慢查询日志，用来**记录响应时间超过阙值的sql语句**，具体指运行时间超过long_query_time值的sql，就会被记录到慢查询日志中。long_query_time的默认值为10，意思是运行10秒以上的语句（不包括10）默认情况下，慢查询日志是关闭的。如果不是为了调优，不建议启动该参数，会带来性能的影响，查看是否开启：
 
 ```sql
 show variables like '%slow_query_log%'
 ```
 
-手动开启慢查询：
+- 手动开启慢查询：
 
 ```sql
 set global slow_query_log=1;
 -- （重启MySQL后失效）
 ```
 
-### 4.2.3.慢查询设置
-
-1、查看当前多少秒算慢
+- 查看当前多少秒算慢
 
  ```sql
  show variables like 'long_query_time';
  ```
 
-2、设置慢的阙值时间
+- 设置慢的阙值时间
 
  ```sql
  set global long_query_time=3;
  -- (重新开一个窗口才能看到修改后的值)
  ```
 
-3、当前系统有多少条慢查询记录
+- 当前系统有多少条慢查询记录
 
   ```sql
 show global status like '%Slow_queries%';
@@ -526,7 +509,7 @@ show global status like '%Slow_queries%';
 
 ## 4.3.show profile
 
-show profile是Mysql提供用来分析当前会话中sql语句执行的资源消耗情况，用于sql调优的测量，默认关闭，若开启默认保存最近15次的运行结果
+show profile是MySQL提供用来分析当前会话中sql语句执行的资源消耗情况，用于sql调优的测量，默认关闭，若开启默认保存最近15次的运行结果
 
 1、查看show profile是否开启？show variables like'profiling';
 
@@ -555,7 +538,7 @@ set global general_log=1;
 set global log_output='TABLE';
    ```
 
-此后，你所执行的sql语句，都会记录到Mysql库里的general_log表，可以使用下面的命令查看：select * from mysql.general_log
+此后所执行的sql语句，都会记录到Mysql库里的general_log表，可以使用下面的命令查看：select * from mysql.general_log
 
 # 5.MySQL锁机制
 
@@ -675,7 +658,7 @@ set autocommit=0;
 
 <img src="./images/间隙锁.png" style="zoom:67%;" />
 
-### 5.2.3.手动锁定一行
+### 5.2.3.手动锁定
 
 当我们用select语句查询一行数据时，希望在查询期间，该行能锁定，不让其他事务修改，就需要我们手动锁定一行：
 

@@ -71,111 +71,134 @@ tomcat源码目录，org.apache.*
 
 # 2.Tomcat架构
 
-Tomcat作为一款轻量级的Web容器，它需要实现的2个功能：
+设计一个复杂的应用系统，先从宏观上开始架构，然后微观上实现细节。就以Tomcat来讲，Tomcat是被当做轻量级Web容器来设计的，所以它主要要实现的功能无非两个：
 
-①处理Socket连接，负责网络字节流与Request、Response对象的转化；
+- 处理连接：监听Socket连接，将TCP底层的字节流数据，转换为Request和Response；
+- 处理请求：管理Servlet实例，将Request和Response交由具体Servlet处理；
 
-②加载、管理和调度Servlet，处理Request请求；
+功能确定了，组件就可以确定。针对处理连接，Tomcat设计了连接器Connector；针对处理请求，Tomcat设计了容器Container。这两个组件是Tomcat架构最重要的部分。学习Tomcat之前，可以先分析下Tomcat最重要的配置文件`server.xml`，它的主标签结构是：
 
-Tomcat在架构设计时，分为了两大组件：**连接器**(即Connector)负责处理连接；**容器**(Container)负责内部调度。一个容器Container可以对接多个连接器Connector，这样可以支持多种协议。但是容器和连接器并不能独立运行，它们必须配合使用，tomcat会把它们组装到一起成为一个`Service`，通过在 Tomcat 中配置多个 Service，可以实现通过不同的端口号来访问同一台机器上部署的不同应用。最顶层是 Server，这里的 Server 就是一个 Tomcat 实例。一个 Server 中有一个或者多个 Service，一个 Service 中有多个连接器和一个容器。连接器与容器之间通过标准的 ServletRequest 和 ServletResponse 通信
+```xml
+<!--顶层组件, 一个Server表示一个Tomcat实例，一个Server可以包含多个Service-->
+<Server>
+    <!--一个Service包含多个Connector和Engine-->
+	<Service>
+        <!--Connector配置I/O模型和应用层协议, 可以配置多个, 监听不同端口-->
+        <Connector>
+        </Connector>
+        <!--一个Engine,可以包含多个Host，处理Connector收到的请求-->
+        <Engine>
+            <!--Host表示虚拟主机，可以理解为一个IP地址，默认127.0.0.1-->
+            <Host>
+                <!--Context表示Web应用，即一个war包，它包含多个Servlet-->
+                <Context></Context>
+            </Host>
+        </Engine>
+    </Service>
+</Server>
+```
+
+上面配置的每一个标签，Tomcat都有一个对应的接口。所以，需要理清楚Tomcat组件基本概念：
+
+- Server：Tomcat实例，下载Tomcat压缩包，执行/bin/startup.sh，就可以启动Tomcat实例；
+- Service：一个对外服务的整体，它包括多个Connector和一个Engine。同时，一个Server可以配置多个Service。实际上Service只是将组件组合到一起，本身并没有实现什么功能；
+- Connector：连接器，启动ServerSocket，负责监听Socket请求，将数据转换成Tomcat Request，交给Engine处理。一个Service可以有多个Connector，表示它可以监听多个端口；
+- Engine：Servlet容器，它是Tomcat容器的最顶层组件，它会管理多个虚拟主机Host。一个Service只能有一个Engine，一个Engine可以配置多个Host；
+- Host：虚拟主机，默认为localhost，也就是127.0.0.1。也可以配置不同的IP地址，访问不同的IP地址就可以访问到不同的虚拟主机。一个Host可以部署多个Context；
+- Context：应用程序，一般会把我们实现的Servlet应用打包成war，放到Tomcat的webapps目录下，Tomcat会将其解压并部署映射成一个Context组件，表示一个应用上下文。一个Context可以管理多个Wrapper，毕竟一个web应用肯定有多个Servlet；
+- Wrapper：这个组件Tomcat配置文件并没有，因为它是在web.xml配置，它就是Servlet。确切地说，是Tomcat用Wrapper包裹了我们自己实现的Servlet。一个请求最终就会到Wrapper来执行
+
+![](./images/Tomcat整体架构.png)
+
+上图就是Tomcat整体架构的各个组件，后面来一个一个拆解分析！！！
+
+## 2.1.连接器-Connector
+
+为了让Servlet容器可以同时服务于不同端口，或者不同的应用层协议，Tomcat用Service组件组合Connector和Container（其实就是Engine组件），一个容器Container可以对接多个连接器Connector，它们之间通过标准的ServletRequest和ServletResponse通信：
 
 <img src="./images/tomcat-service组件.jpeg" style="zoom:67%;" />
 
+### 2.1.1.模块划分
+
+从宏观角度看，连接器Connector的任务是：接收Sokcet连接，将byte stream转换为ServletRequest，再把执行完业务逻辑的ServletResponse写回到Socket。再细分一点，Connector的任务是：端口监听 → 接收Socket连接 → 读取Socket请求的字节流 → 根据具体应用层协议（HTTP/AJP）解析字节流，生成统一的 Tomcat Request 对象  → 将 Tomcat Request 对象转成标准的 ServletRequest → 调用 Servlet 容器，得到 ServletResponse → 将 ServletResponse 转成 Tomcat Response 对象 →  将 Tomcat Response 转成网络字节流 → 写回Socket对端！！
+
+所以问题就来了，需要怎么设计Connector组件的子模块？这里可以借鉴Tomcat的设计思想，其实优秀的模块化设计应该考虑**高内聚、低耦合**：
+
+- 高内聚：相关度比较高的功能要尽可能集中，不要分散
+- 低耦合：两个相关的模块要尽可能减少依赖的部分和降低依赖的程度，不要让两个模块产生强依赖
+
+虽然Connector需要完成的细节很多，但还是可以划分出高内聚的3个方面：
+
+1. 网络通信：监听端口 + 接收连接 + 处理连接 + Socket数据读取等
+
+2. 应用层协议解析：数据在网络都是通过字节传递，解析底层网络字节流等
+
+3. Tomcat Request/Response 与 ServletRequest/ServletResponse 的转化
+
+基于此，Tomcat设计了3个组件来实现连接器的功能，分别是：`EndPoint`、`Processor`、`Adapter`。Endpoint负责提供字节流给Processor，Processor负责提供Tomcat Request对象给Adapter，Adapter负责转换ServletRequest对象给容器
+
+<img src="./images/tomcat-connector组件.jpeg" style="zoom:67%;" />
+
+### 2.1.2.I/O模型&应用层协议
+
 **Tomcat支持的I/O模型：**
 
-- NIO：非阻塞 I/O，采用 Java NIO 类库实现。
-- NIO2：异步 I/O，采用 JDK 7 最新的 NIO2 类库实现。
+- NIO：非阻塞 I/O，采用 Java NIO 类库实现
+- NIO2：异步 I/O，采用 JDK 7 最新的 NIO2 类库实现
 - APR：采用 Apache 可移植运行库实现，是 C/C++ 编写的本地库
 
 **Tomcat支持的应用层协议：**
 
-- HTTP/1.1：这是大部分 Web 应用采用的访问协议。
-- AJP：用于和 Web 服务器集成（如 Apache）。
-- HTTP/2：HTTP 2.0 大幅度的提升了 Web 性能。
-
-## 2.1.连接器
-
-连接器的功能细化：
-
-- 监听网络端口。
-- 接受网络连接请求。
-- 读取请求网络字节流。
-- 根据具体应用层协议（HTTP/AJP）解析字节流，生成统一的 Tomcat Request 对象。
-- 将 Tomcat Request 对象转成标准的 ServletRequest。
-- 调用 Servlet 容器，得到 ServletResponse。
-- 将 ServletResponse 转成 Tomcat Response 对象。
-- 将 Tomcat Response 转成网络字节流。
-- 将响应字节流写回给浏览器。
-
-tomcat设计了3个组件来实现连接器的功能，分别是：EndPoint、Processor、Adapter。Endpoint负责提供字节流给Processor，Processor负责提供Tomcat Request对象给Adapter，Adapter负责转换ServletRequest对象给容器。
-
-<img src="./images/tomcat-connector组件.jpeg" style="zoom:67%;" />
-
-为了让`I/O`模型和应用层协议能够自由搭配，tomcat提供ProtocolHandler接口，来将网络通信(EndPoint)和应用层协议解析(Processor)放在一起处理。面向对象编程的精髓就是继承和多态，同样tomcat也会抽出稳定不变的基类AbstractProtocol，然后每一个应用层协议都有自己的抽象基类，例如AbstractAjpProtocol 和 AbstractHttp11Protocol，最后根据`I/O`模型实现抽象基类，继承关系如下：
-
-<img src="./images/ProtocolHandler继承关系.jpeg" style="zoom:67%;" />
+- HTTP/1.1：这是大部分 Web 应用采用的访问协议
+- AJP：用于和 Web 服务器集成（如 Apache）
+- HTTP/2：HTTP 2.0 大幅度的提升了 Web 性能
 
 ### 2.1.1.ProtocolHandler
 
-Tomcat提供了ProtocolHandler，合并了EndPoint和Processor两个基础组件，来处理网络连接和应用层协议。
+Tomcat为了让I/O模型与应用层协议可以自由搭配，设计`ProtocolHandler`组件，将`EndPoint`和`Processor`组合到一起。这个跟前面所讲的将Connector和Container组合成Service的道理一样，Tomcat善用组合模式，可以让组件之间解耦，同时还可以自由搭配，灵活度高，是一种优秀的设计思想，值得学习。
 
-- EndPoint
+面向对象编程的精髓就是继承和多态，同样Tomcat也会抽出稳定不变的基类AbstractProtocol，然后每一个应用层协议都有自己的抽象基类，例如AbstractAjpProtocol 和 AbstractHttp11Protocol，最后根据`I/O`模型实现抽象基类，继承关系如下：
 
-  网络监听的通信接口，用来实现 TCP/IP 协议，对应tomcat源码的`org.apache.tomcat.util.net.AbstractEndpoint`，是具体的Socket接口和发送处理器。AbstractEndpoint 的具体子类，比如在：NioEndpoint 和 Nio2Endpoint ，有两个重要的子组件：Acceptor 和 SocketProcessor。Acceptor 用于监听 Socket 连接请求。SocketProcessor 用于处理接收到的 Socket 请求，它实现 Runnable 接口，在 Run 方法里调用协议处理组件 Processor 进行处理。为了提高处理能力，SocketProcessor 被提交到线程池来执行。而这个线程池叫作执行器（Executor)
+<img src="./images/ProtocolHandler继承关系.jpeg" style="zoom:67%;" />
 
-- Processor
+- **EndPoint**
+
+  网络监听的通信接口，用来实现 TCP/IP 协议，对应tomcat源码的`org.apache.tomcat.util.net.AbstractEndpoint`，是具体的Socket接口和发送处理器。AbstractEndpoint 的具体子类，比如在：NioEndpoint 和 Nio2Endpoint ，有两个重要的子组件：Acceptor 和 SocketProcessor。Acceptor 用于监听 Socket 连接请求；SocketProcessor 用于处理接收到的 Socket 请求，它实现 Runnable 接口，在 Run 方法里调用协议处理组件 Processor 进行处理，为了提高处理能力，SocketProcessor 被提交到线程池来执行
+
+- **Processor**
 
   应用层协议解析接口，用来实现HTTP协议，对应tomcat源码的`org.apache.coyote.Processor`。Processor 接收来自 EndPoint 的 Socket，读取字节流解析成 Tomcat Request 和 Response 对象，并通过 Adapter 将其提交到容器处理
 
-<img src="./images/tomcat-ProtocolHandler组件.jpeg" style="zoom:77%;" />
+EndPoint的Acceptor接收到Socket连接后，生成一个SocketProcessor任务提交到线程池(Executor)处理，SocketProcessor实现了Runnable接口，它的run()方法会调用Processor组件去解析应用层协议。Processor通过解析生成Request对象，调用Adapter的service()方法
 
-EndPoint的Acceptor接收到Socket连接后，生成一个SocketProcessor任务提交到线程池(Executor)处理，SocketProcessor实现了Runnable接口，它的run()方法会调用Processor组件去解析应用层协议。Processor通过解析生成Request对象，调用Adapter的service()方法。
+<img src="./images/tomcat-ProtocolHandler组件.jpeg" style="zoom:77%;" />
 
 ### 2.1.2.Adapter
 
-tomcat支持多种协议，那么每种协议的请求信息都不一样，Adapter之前的ProtocolHandler组件，仅仅是将不同协议的请求信息解析封装成Tomcat Request对象。之前讲过，连接器Connector与容器Container之间的交互对象是ServletRequest，所以Adapter就是负责将Tomcat Request转换成ServletRequest。tomcat采用适配器模式，提供CoyoteAdapter，连接器调用 CoyoteAdapter 的 Sevice 方法，传入的是 Tomcat Request 对象，CoyoteAdapter 负责将 Tomcat Request 转成 ServletRequest，再调用容器的 Service 方法。
+Tomcat支持多种协议，每种协议的请求信息都不一样，Adapter之前的ProtocolHandler组件，仅仅是将不同协议的请求信息解析封装成Tomcat Request对象。之前讲过，连接器Connector与容器Container之间的交互对象是ServletRequest，所以Adapter就是负责将Tomcat Request转换成ServletRequest。Tomcat采用适配器模式，提供CoyoteAdapter，连接器调用 CoyoteAdapter 的 Sevice 方法，传入的是 Tomcat Request 对象，CoyoteAdapter 负责将 Tomcat Request 转成 ServletRequest，再调用容器的 Service 方法
 
-## 2.2.容器
+## 2.2.容器-Container
 
-在tomcat里，容器Container就是来装载和调度Servlet的
+经过连接器Connector处理后，网络请求已经被Tomcat转换成ServletRequest，这样连接器的任务就算完成了。后面，是Tomcat另一个组件Container来完成接下来的任务
 
-### 2.2.1.Engine
+### 2.2.1.层次结构
 
-**Tomcat 通过一种分层的架构，使得 Servlet 容器具有很好的灵活性**。它设计了 4 种容器： Engine、Host、Context 和 Wrapper，这 4 种容器不是平行关系，而是父子关系：
+以HTTP协议来举例，一个标准的HTTP协议格式为：`http://ip:port/...`，也就是说ip:post（确切地说应该是域名）可以定位一台主机，后面的...表示访问路径，可以定位上下文路径和Servlet映射路径。基于这一种情况，**Tomcat 通过一种分层的架构，使得 Servlet 容器具有很好的灵活性**。它设计了 4 种容器： Engine、Host、Context 和 Wrapper，这 4 种容器不是平行关系，而是父子关系：
 
 <img src="./images/tomcat-Servlet容器层次结构.jpeg" style="zoom:78%;" />
 
-前面说过，一个Tomcat实例可以有多个Service，一个Service由一个容器 + 多个连接器组成。上图就是容器的构造：
-
 - Wrapper，表示一个Servlet
-- Context，表示一个Web应用，即部署在tomcat/webapp下的一个war就是一个Context，它可以包含多个Servlet；
+- Context，表示一个Web应用，即部署在Tomcat/webapps下的一个war就是一个Context，它可以包含多个Servlet；
 - Host，表示一个虚拟主机(或者说站点)，一个虚拟主机可以部署多个Web应用，而tomcat可以配置多个虚拟主机；
 - Engine，表示引擎，用来管理多个虚拟主机，但是一个容器(或者说Service)只能有一个Engine。
 
-其实tomcat重要的配置文件`server.xml`也是根据这种层次关系设计，它的整体结构如下：
-
-```xml
-<Server> 		<!-- 顶层组件, 表示一个Tomcat实例, 它可以包含多个Service -->
-  <Service> <!-- 一个Service可以包含多个Connector和一个Engine -->
-    <Connector> <!--连接器组件, 表示通信接口 -->
-    <Connector />
-    <Engine> <!-- 容器组件, 一个Engine可以包含多个Host, 处理Service中的所有请求 -->
-      <Host> <!-- 容器组件, 处理特定Host下的请求, 可以包含多个Host -->
-        <Context> <!-- 容器组件, 处理特定Web应用的请求 -->
-        <Context/>
-      </Host>
-    </Engine>
-  </Service>
-</Server> 
-```
-
-tomcat设计的容器具有父子关系，形成一个树形结构，它是采用组合模式来管理这些组件。所有容器组件都实现了 Container 接口，因此组合模式可以使得用户对单容器对象和组合容器对象的使用具有一致性。这里单容器对象指的是最底层的 Wrapper，组合容器对象指的是上面的 Context、Host 或者 Engine
+Tomcat设计的容器具有父子关系，形成一个树形结构，它是采用组合模式来管理这些组件。所有容器组件都实现了 Container 接口，因此组合模式可以使得用户对单容器对象和组合容器对象的使用具有一致性。这里单容器对象指的是最底层的 Wrapper，组合容器对象指的是上面的 Context、Host 或者 Engine。具体细节可以到[源码笔记](Tomcat源码.md)
 
 ![](./images/Tomcat容器核心组件类关系.png)
 
-### 2.2.2.Mapper
+### 2.2.2.定位Servlet
 
-其实，Tomcat将容器拆分成这么多层次，也就带来一个难题，那就是怎么将客户的请求信息定位到最底层的Servlet上。Tomcat设计一个映射组件`org.apache.catalina.mapper.Mapper`，它保存了容器组件与访问路径的映射关系，例如：Host容器配置的域名、Context容器配置的Web应用根路径、Wrapper容器配置的Servlet映射路径。当一个请求到来时，Mapper根据URL的域名选定Host组件，再根据URL路径选定Context组件，最后还是根据URL路径定位具体的Wrapper(也就是Servlet)
+Tomcat设计一个映射组件`org.apache.catalina.mapper.Mapper`，它保存了容器组件与访问路径的映射关系，例如：Host容器配置的域名、Context容器配置的Web应用根路径、Wrapper容器配置的Servlet映射路径。当一个请求到来时，Mapper根据URL的域名选定Host组件，再根据URL路径选定Context组件，最后还是根据URL路径定位具体的Wrapper(也就是Servlet)
 
 这个有一个网上的例子，假设一个系统分为两个子系统：前台用户系统、后台管理系统。这两个系统部署在同一个Tomcat上，为了隔离不同的域名，运维同学部署了两个虚拟域名：`manage.shopping.com`和`user.shopping.com`。网站管理人员通过`manage.shopping.com`域名访问 Tomcat 去管理用户和商品，而用户管理和商品管理是两个单独的 Web 应用。客户通过`user.shopping.com`域名去搜索商品和下订单，搜索功能和订单管理也是两个独立的 Web 应用
 
@@ -203,18 +226,16 @@ Context确定后，Mapper就会通过`web.xml`中配置的Servlet映射路径来
 
 ### 2.2.3.Pipeline-Value
 
-实际上，在上面tomcat的查找过程中，会依次对请求做一些处理(其实就是责任链模式啦！)，连接器中的 Adapter 会调用容器的 Service 方法来执行 Servlet，最先拿到请求的是 Engine 容器，Engine 容器对请求做一些处理后，会把请求传给自己子容器 Host 继续处理，以此类推，最后这个请求会传给 Wrapper 容器，Wrapper 会调用Servlet 来处理。对客户端请求”加工“这一过程，tomcat是通过管道Pipeline-Value实现的。
-
-Valve表示一个处理点，它的getNext()方法会将其它Valve关联起来，形成一个链表。关键方法如下：
+实际上，在上面tomcat的查找过程中，会依次对请求做一些处理(其实就是责任链模式啦！)，连接器中的 Adapter 会调用容器的 Service 方法来执行 Servlet，最先拿到请求的是 Engine 容器，Engine 容器对请求做一些处理后，会把请求传给自己子容器 Host 继续处理，以此类推，最后这个请求会传给 Wrapper 容器，Wrapper 会调用Servlet 来处理。对客户端请求”加工“这一过程，tomcat是通过管道Pipeline-Value实现的。Valve表示一个处理点，它的getNext()方法会将其它Valve关联起来，形成一个链表。关键方法如下：
 
 ```java
 public interface Valve {
-  // 获取下一个处理点
-  Valve getNext();
-  // 设置下一个处理点
-  void setNext(Valve valve);
-  // 实际处理请求的逻辑
-  void invoke(Request request, Response response)
+    // 获取下一个处理点
+    Valve getNext();
+    // 设置下一个处理点
+    void setNext(Valve valve);
+    // 实际处理请求的逻辑
+    void invoke(Request request, Response response)
 }
 ```
 
@@ -222,10 +243,10 @@ Pipeline维护了 Valve 链表，每一个容器都有一个 Pipeline 对象，�
 
 ```java
 public interface Pipeline extends Contained {
-  void addValve(Valve valve);
-  Valve getBasic();
-  void setBasic(Valve valve);
-  Valve getFirst();
+    void addValve(Valve valve);
+    Valve getBasic();
+    void setBasic(Valve valve);
+    Valve getFirst();
 }
 ```
 
@@ -237,7 +258,8 @@ public interface Pipeline extends Contained {
 
 ```java
 // Calling the container
-connector.getService().getContainer().getPipeline().getFirst().invoke(request, response);
+connector.getService().getContainer().getPipeline().getFirst().invoke(
+    request, response);
 ```
 
 Wrapper 容器的最后一个 Valve 会创建一个 Filter 链，并调用 doFilter() 方法，最终会调到 Servlet 的 service 方法。其实，Valve和Filter很相似，但是它们有很大的区别：
@@ -245,188 +267,439 @@ Wrapper 容器的最后一个 Valve 会创建一个 Filter 链，并调用 doFil
 - Valve 是 Tomcat 的私有机制，与 Tomcat 的基础架构 /API 是紧耦合的。Servlet API 是公有的标准，所有的 Web 容器包括 Jetty 都支持 Filter 机制。
 - 另一个重要的区别是 Valve 工作在 Web 容器级别，拦截所有应用的请求；而 Servlet Filter 工作在应用级别，只能拦截某个 Web 应用的所有请求。如果想做整个 Web 容器的拦截器，必须通过 Valve 来实现。
 
-# 3.连接器
+# 3.生命周期管理
 
-之前讲过Tomcat支持3种不同的I/O模型：nio、aio、apr。nio和aio比较熟悉，主要是apr，apr全称Apache Portable Runtime/Apache可移植运行时库，Tomcat将以JNI的形式调用Apache HTTP服务器的核心动态链接库来处理文件读取或网络传输操作，从而大大地提高Tomcat对静态文件的处理性能。**从操作系统级别来解决异步的IO问题,大幅度的提高性能。** Tomcat apr也是在Tomcat上运行高并发应用的首选模式。要让Tomcat以apr模式来运行，必须安装apr和native
+Tomcat设计众多组件来保证高内聚低耦合，保证可扩展性。但是，组件数量多也会带来其它问题，比如组件的管理，在启动、关闭和销毁需要涉及多个组件的操作。Tomcat为了设计了LifeCycle接口，它定义生命周期钩子函数：init()、start()、stop() 和 destroy()，组件都实现这个接口，定义自己的处理逻辑。并且，上层组件在触发自己生命周期钩子函数的同时，会触发它管理的下层组件的钩子函数。其实老外设计框架很喜欢设计这个LifeCycle接口，新版Apache Dubbo也加入了这一特性。下图是Tomcat生命周期管理总体类图：
 
-## 3.1.NioEndpoint
+![](./images/Tomcat生周期管理总体类图.png)
 
-Tomcat 的 NioEndPoint 组件基于java的nio包实现了 I/O 多路复用模型，一共包含 LimitLatch、Acceptor、Poller、SocketProcessor 和 Executor 共 5 个组件
+## 3.1.设计模式
+
+Tomcat在实现组件生命周期管理，充分利用了**组合模式**、**观察者模式**和**模板模式**。
+
+### 3.1.1.组合模式
+
+Tomcat通过组合模式，用上层组件来管理它下一级组件，每个组件都是这样的管理方式。这样暴露给用户的是，只需要对一个组件进行访问，则可以达到一个完整系统调用的一致性效果。以Tomcat最顶级的组件Server来看，它的init()方法：
+
+```java
+public final class StandardServer extends LifecycleMBeanBase implements Server {
+    /**
+     * startInternal()实际就是LifeCycle接口的start()方法，Tomcat对其进行了抽象封装
+     */
+    protected void startInternal() throws LifecycleException {
+        // 省略部分diamante
+       	...
+        // 启动各个Service
+        synchronized (servicesLock) {
+            for (Service service : services) {
+                // 而Service又会去启动Connector和Engine，形成一个一键启停的效果
+                service.start();
+            }
+        }
+    }
+}
+```
+
+### 3.1.2.观察者模式
+
+设计框架，一个很重要的原则就是：开闭原则（对修改关闭，对扩展开放）同样的，Tomcat考虑自身的可扩展性，避免版本升级就得修改生命周期钩子函数，它引入了监听器LifecycleListener和LifecycleState。它设计了一套贯穿组件生命周期全过程的状态集合，例如：当组件刚创建则处于NEW状态，调用了init()方法处于INITIALIZED状态...在调用生命周期方法的前后，会改变组件的状态，而状态的改变会被封装成为一个个事件LifecycleEvent，由监听器来处理这些事件。
+
+![](./images/Tomcat组件状态.png)
+
+**Tomcat如何注册监听器**
+
+- Tomcat 自定义了一些监听器，这些监听器是父组件在创建子组件的过程中注册到子组件的。比如 MemoryLeakTrackingListener 监听器，用来检测 Context 容器中的内存泄漏，这个监听器是 Host 容器在创建 Context 容器时注册到 Context 中的
+- 自己还可以在 server.xml 中定义自己的监听器，Tomcat 在启动时会解析 server.xml，创建监听器并注册到容器组件
+
+### 3.1.3.模板模式
+
+模板模式主要体现了代码实现上，实际上状态的转变、事件的创建以及监听器的回调，这些操作其实没有必要在每个组件中自己实现，这会造成重复代码。Tomcat在实现这个功能的时候，把这些通用逻辑抽象了出来，定义为一个LifecycleBase抽象类，它会定义骨架方法，比如init()方法
+
+```java
+public final synchronized void init() throws LifecycleException {
+    // 只有组件状态为 LifecycleState.NEW 时, 才能初始化
+    if (!state.equals(LifecycleState.NEW)) {
+        invalidTransition(Lifecycle.BEFORE_INIT_EVENT);
+    }
+    try {
+        // 生命周期监听器 org.apache.catalina.LifecycleEvent, 初始化前事件回调
+        setStateInternal(LifecycleState.INITIALIZING, null, false);
+        // 子类组件真正执行初始化的逻辑
+        initInternal();
+        // 生命周期监听器 org.apache.catalina.LifecycleEvent, 初始化后事件回调
+        setStateInternal(LifecycleState.INITIALIZED, null, false);
+    } catch (Throwable t) {
+        handleSubClassException(t, "lifecycleBase.initFail", toString());
+    }
+}
+```
+
+这些定义完以后，状态的改变，事件的创建和监听器的回调，都在抽象父类实现了，子类只需要实现真正的初始化逻辑即可。这是一个很好的设计模式，在JDK的AbstractQueueSynchronizer也很好的诠释了这一模式！！
+
+# 4.连接器
+
+Tomcat连接器的作用就是进行网络通信，读取字节流，将请求转换成ServletRequest交给Servlet容器。其中，在网络通信这一方面，Tomcat支持3种不同的I/O模型：NIOI、AIO、APR，NIO和AIO比较熟悉，主要是APR。
+
+APR全称Apache Portable Runtime/Apache可移植运行时库，Tomcat将以JNI的形式调用Apache HTTP服务器的核心动态链接库来处理文件读取或网络传输操作，从而大大地提高Tomcat对静态文件的处理性能，**从操作系统级别来解决异步的IO问题,大幅度的提高性能。** Tomcat apr也是在Tomcat上运行高并发应用的首选模式。要让Tomcat以apr模式来运行，必须安装apr和native
+
+## 4.1.NioEndpoint
+
+Tomcat使用NioEndPoint基于java的nio包实现了 I/O 多路复用模型，主要包含了 LimitLatch、Acceptor、Poller、SocketProcessor 和 Executor 共 5 个组件。它的工作过程如下：
 
 ![](./images/NioEndPoint工作流程.jfif)
 
+### 4.1.1.LimitLatch
 
+连接控制器，它负责控制最大连接数，NIO 模式下默认是 10000，达到这个阈值后，连接请求被拒绝；当连接数到达最大时会阻塞线程，直到后续组件处理完一个连接后，才会将连接数减 1。但是需要注意到达最大连接数后，操作系统底层还是会接收客户端连接，但用户层已经不再接收；它是基于AQS实现，原理就跟Lock一样
 
-- `org.apache.catalina.Executor`：
+### 4.1.2.Acceptor
 
-  线程池，负责运行 SocketProcessor 任务类，SocketProcessor 的 run 方法会调用 Http11Processor 来读取和解析请求数据。我们知道，Http11Processor 是应用层协议的封装，它会调用容器获得响应，再把响应通过 Channel 写出
+创建Acceptor需要传入`org.apache.tomcat.util.net.AbstractEndpoint`，其实是为了持有ServerSocketChannel 对象，该对象在EndPoint的初始化代码：
 
-- `org.apache.tomcat.util.threads.LimitLatch`
+```java
+serverSock = ServerSocketChannel.open();
+// bind 方法的第二个参数表示操作系统的等待队列长度，当应用层面的连接数到达最大值时，
+// 操作系统可以继续接收连接，那么操作系统能继续接收的最大连接数就是这个队列长度，可以
+// 通过 acceptCount 参数配置，默认是 100。
+serverSock.socket().bind(addr,getAcceptCount());
 
-  连接控制器，它负责控制最大连接数，NIO 模式下默认是 10000，达到这个阈值后，连接请求被拒绝；当连接数到达最大时会阻塞线程，直到后续组件处理完一个连接后，才会将连接数减 1。但是需要注意到达最大连接数后，操作系统底层还是会接收客户端连接，但用户层已经不再接收；
+// 设置成阻塞模式，也就是说它是以阻塞的方式接收连接的
+serverSock.configureBlocking(true);
+```
 
-- `org.apache.tomcat.util.net.Acceptor`
+Acceptor跑在一个单独的线程里，它在一个死循环里调用ServerSocketChannel 的 accept() 方法来接收新连接，一旦有新的连接请求到来，accept() 方法返回获得 SocketChannel 对象，然后Acceptor会将 SocketChannel 对象封装在一个 PollerEvent 对象中，并将 PollerEvent 对象压入 Poller 的 Queue 里.这是个典型的生产者 - 消费者模式，Acceptor 与 Poller 线程之间通过 Queue 通信
 
-  创建**Acceptor**需要传入`org.apache.tomcat.util.net.AbstractEndpoint`，其实是为了持有ServerSocketChannel 对象，该对象在EndPoint的初始化代码：
+### 4.1.3.Poller
 
-  ```java
-  serverSock = ServerSocketChannel.open();
-  // bind 方法的第二个参数表示操作系统的等待队列长度，当应用层面的连接数到达最大值时，操作系统可以继续
-  // 接收连接，那么操作系统能继续接收的最大连接数就是这个队列长度，可以通过 acceptCount 参数配置，
-  // 默认是 100。
-  serverSock.socket().bind(addr,getAcceptCount());
-  
-  // 设置成阻塞模式，也就是说它是以阻塞的方式接收连接的
-  serverSock.configureBlocking(true);
-  ```
+独立运行在一个线程里，底层就是一个 Selector，每个 Poller 线程可能同时被多个 Acceptor 线程调用来注册 PollerEvent。Poller 不断的通过内部的 Selector 对象向内核查询 Channel 的状态，一旦可读就生成任务类 SocketProcessor 交给 Executor 去处理
 
-  Acceptor跑在一个单独的线程里，它在一个死循环里调用ServerSocketChannel 的 accept() 方法来接收新连接，一旦有新的连接请求到来，accept() 方法返回获得 SocketChannel 对象，然后**Acceptor**会将 SocketChannel 对象封装在一个 PollerEvent 对象中，并将 PollerEvent 对象压入 Poller 的 Queue 里
+```java
+// 一个Poller拥有一个Selector
+private Selector selector;
 
-- `org.apache.tomcat.util.net.NioEndpoint.Poller`
+// 保证同一时刻只有一个 Acceptor 线程对 Queue 进行读写
+private final SynchronizedQueue<PollerEvent> events = new SynchronizedQueue<>();
+```
 
-  独立运行在一个线程里，本质是一个 Selector，每个 Poller 线程可能同时被多个 Acceptor 线程调用来注册 PollerEvent。Poller 不断的通过内部的 Selector 对象向内核查询 Channel 的状态，一旦可读就生成任务类 SocketProcessor 交给 Executor 去处理
+Poller 的另一个重要任务是循环遍历检查自己所管理的 SocketChannel 是否已经超时，如果有超时就关闭这个 SocketChannel
 
-  ```java
-  private Selector selector;
-  
-  // 保证同一时刻只有一个 Acceptor 线程对 Queue 进行读写
-  private final SynchronizedQueue<PollerEvent> events = new SynchronizedQueue<>();
-  ```
+### 4.1.4.Executor
 
-- `org.apache.tomcat.util.net.NioEndpoint.SocketProcessor`
+Tomcat自定义实现的线程池，负责运行 SocketProcessor 任务类，SocketProcessor 的 run 方法会调用 Http11Processor 来读取和解析请求数据。Http11Processor 是应用层协议的封装，它会调用容器获得响应，再把响应通过 Channel 写出
 
-  Poller 会创建 SocketProcessor 任务类交给线程池处理，而 SocketProcessor 实现了 Runnable 接口，用来定义 Executor 中线程所执行的任务，主要就是调用 Http11Processor 组件来处理请求
+### 4.1.5.SocketProcessor
 
-- `org.apache.catalina.Executor`
+SocketProcessor实现了Runable接口，它的run()里面主要是调用Http11Processor 来处理请求。Tomcat会将Socket包装成一个SocketWrapper，Http11Processor 会调用SocketWrapper来读写数据
 
-  Executor 是 Tomcat 定制版的线程池，执行 SocketProcessor 的 run 方法，也就是解析请求并通过容器来处理请求，最终会调用到我们的 Servlet
+## 4.2.Nio2Endpoint
 
-## 3.2.Nio2Endpoint
-
-Nio2Endpoint的组件跟NioEndpoint类似，但是**Nio2Endpoint 中没有 Poller 组件，也就是没有 Selector。这是因为在异步 I/O 模式下，Selector 的工作交给内核来做了**
+Nio2Endpoint的组件跟NioEndpoint类似，但是Nio2Endpoint 中没有 Poller 组件，也就是没有 Selector。这是因为在异步 I/O 模式下，Selector 的工作交给内核来做了
 
 ![](./images/Nio2Endpoint工作流程.jfif)
 
-- LimitLatch
+### 4.2.1.LimitLatch
 
-  连接控制器，它负责控制最大连接数
+跟NioEndPoint一样，连接控制器，它负责控制最大连接数
 
-- Nio2Acceptor
+### 4.2.2.Nio2Acceptor
 
-  Nio2Acceptor 扩展了 Acceptor，并且 Nio2Acceptor 自己就是处理连接的回调类，因此 Nio2Acceptor 实现了 CompletionHandler 接口。用异步 I/O 的方式来接收连接，跑在一个单独的线程里，也是一个线程组。Nio2Acceptor 接收新的连接后，得到一个 AsynchronousSocketChannel，Nio2Acceptor 把 AsynchronousSocketChannel 封装成一个 Nio2SocketWrapper，并创建一个 SocketProcessor 任务类交给线程池处理，并且 SocketProcessor 持有 Nio2SocketWrapper 对象
+Nio2Acceptor 扩展了 Acceptor，并且 Nio2Acceptor 自己就是处理连接的回调类，因此 Nio2Acceptor 实现了 CompletionHandler 接口，用异步 I/O 的方式来接收连接，跑在一个单独的线程里，也是一个线程组。Nio2Acceptor 接收新的连接后，得到一个 AsynchronousSocketChannel，Nio2Acceptor 把 AsynchronousSocketChannel 封装成一个 Nio2SocketWrapper，并创建一个 SocketProcessor 任务类交给线程池处理，并且 SocketProcessor 持有 Nio2SocketWrapper 对象
 
-  ```java
-  protected class Nio2Acceptor extends Acceptor<AsynchronousSocketChannel>
-      implements CompletionHandler<AsynchronousSocketChannel, Void> {
-      
-  @Override
-  public void completed(AsynchronousSocketChannel socket,
-          Void attachment) {
-          
-      if (isRunning() && !isPaused()) {
-          if (getMaxConnections() == -1) {
-              // 如果没有连接限制，继续接收新的连接
-              serverSock.accept(null, this);
-          } else {
-              // 如果有连接限制，就在线程池里跑 Run 方法，Run 方法会检查连接数
-              getExecutor().execute(this);
-          }
-          // 处理请求
-          if (!setSocketOptions(socket)) {
-              closeSocket(socket);
-          }
-      } 
-  }
-  ```
+```java
+protected class Nio2Acceptor extends Acceptor<AsynchronousSocketChannel>
+    implements CompletionHandler<AsynchronousSocketChannel, Void> {
+    
+@Override
+public void completed(AsynchronousSocketChannel socket,
+        Void attachment) {
+        
+    if (isRunning() && !isPaused()) {
+        if (getMaxConnections() == -1) {
+            // 如果没有连接限制，继续接收新的连接
+            serverSock.accept(null, this);
+        } else {
+            // 如果有连接限制，就在线程池里跑 Run 方法，Run 方法会检查连接数
+            getExecutor().execute(this);
+        }
+        // 处理请求
+        if (!setSocketOptions(socket)) {
+            closeSocket(socket);
+        }
+    } 
+}
+```
 
-- `org.apache.tomcat.util.net.Nio2Endpoint.Nio2SocketWrapper`
+### 4.2.3.Nio2SocketWrapper
 
-  Nio2SocketWrapper 的主要作用是封装 Channel，并提供接口给 Http11Processor 读写数据，Http11Processor 是不能阻塞等待数据的，按照异步 I/O 的套路，Http11Processor 在调用 Nio2SocketWrapper 的 read 方法时需要注册回调类，read 调用会立即返回，问题是立即返回后 Http11Processor 还没有读到数据， 怎么办呢？
+Nio2SocketWrapper封装了Channel，它是实际读取Channel内的数据，并提供接口给Http11Processor读写。但是由于异步I/O的性质，Http11Processor读取Nio2SocketWrapper时很有可能内核还没有将数据准备好，为了解决这个问题，Http11Processor采用了2次read调用：
 
-  为了解决这个问题，Http11Processor 是通过 2 次 read 调用来完成数据读取操作的。
+1. 第一次 read 调用：连接刚刚建立好后，Acceptor 创建 SocketProcessor 任务类交给线程池去处理，Http11Processor 在处理请求的过程中，会调用 Nio2SocketWrapper 的 read 方法发出第一次读请求，同时注册了回调类 readCompletionHandler，因为数据没读到，Http11Processor 把当前的 Nio2SocketWrapper 标记为数据不完整。**接着 SocketProcessor 线程被回收，Http11Processor 并没有阻塞等待数据**。这里请注意，Http11Processor 维护了一个 Nio2SocketWrapper 列表，也就是维护了连接的状态
+2. 第二次 read 调用：当数据到达后，内核已经把数据拷贝到 Http11Processor 指定的 Buffer 里，同时回调类 readCompletionHandler 被调用，在这个回调处理方法里会**重新创建一个新的 SocketProcessor 任务来继续处理这个连接**，而这个新的 SocketProcessor 任务类持有原来那个 Nio2SocketWrapper，这一次 Http11Processor 可以通过 Nio2SocketWrapper 读取数据了
 
-  1. 第一次 read 调用：连接刚刚建立好后，Acceptor 创建 SocketProcessor 任务类交给线程池去处理，Http11Processor 在处理请求的过程中，会调用 Nio2SocketWrapper 的 read 方法发出第一次读请求，同时注册了回调类 readCompletionHandler，因为数据没读到，Http11Processor 把当前的 Nio2SocketWrapper 标记为数据不完整。**接着 SocketProcessor 线程被回收，Http11Processor 并没有阻塞等待数据**。这里请注意，Http11Processor 维护了一个 Nio2SocketWrapper 列表，也就是维护了连接的状态。
-  2. 第二次 read 调用：当数据到达后，内核已经把数据拷贝到 Http11Processor 指定的 Buffer 里，同时回调类 readCompletionHandler 被调用，在这个回调处理方法里会**重新创建一个新的 SocketProcessor 任务来继续处理这个连接**，而这个新的 SocketProcessor 任务类持有原来那个 Nio2SocketWrapper，这一次 Http11Processor 可以通过 Nio2SocketWrapper 读取数据了，因为数据已经到了应用层的 Buffer。
+这个回调类 readCompletionHandler 的源码如下，最关键的一点是，**Nio2SocketWrapper 是作为附件类来传递的**，这样在回调函数里能拿到所有的上下文。
 
-  这个回调类 readCompletionHandler 的源码如下，最关键的一点是，**Nio2SocketWrapper 是作为附件类来传递的**，这样在回调函数里能拿到所有的上下文。
+## 4.3.AprEndpoint 
 
-  ```java
-  this.readCompletionHandler = new CompletionHandler<Integer, SocketWrapperBase<Nio2Channel>>() {
-      public void completed(Integer nBytes, SocketWrapperBase<Nio2Channel> attachment) {
-          ...
-              // 通过附件类 SocketWrapper 拿到所有的上下文
-       Nio2SocketWrapper.this.getEndpoint().processSocket(attachment, SocketEvent.OPEN_READ, false);
-      }
-  
-      public void failed(Throwable exc, SocketWrapperBase<Nio2Channel> attachment) {
-          ...
-      }
-  }
-  ```
+APR（Apache Portable Runtime Libraries）是 Apache 可移植运行时库，它会向上层应用程序提供一个跨平台的操作系统接口库。Tomcat的AprEndpoint 实现了APR功能，它是通过 JNI 调用 APR 本地库而实现非阻塞 I/O 的。
 
-## 3.3.AprEndpoint 
-
-AprEndpoint工作流程：
+APR 提升性能的秘密还有：通过 DirectByteBuffer 避免了 JVM 堆与本地内存之间的内存拷贝；通过 sendfile 特性避免了内核与应用之间的内存拷贝以及用户态和内核态的切换。AprEndpoint 的工作流程和组件跟NioEndPoint很类似：
 
 ![](./images/AprEndpoint工作流程.jfif)
 
-- Acceptor
+### 4.3.1.Acceptor
 
-  Accpetor 的功能就是监听连接，接收并建立连接。它的本质就是调用了四个操作系统 API：socket、bind、listen 和 accept
+Tomcat定义了`org.apache.tomcat.jni.Socket`，它负责提供操作系统API。Accpetor 的功能就是监听连接，接收并建立连接。它的本质就是调用了下面的4个API：
 
-- pollor
+```java
+public class Socket {
+    public static native long create(int family, int type, int protocol, 
+                                     long cont);
 
-  Acceptor 接收到一个新的 Socket 连接后，按照 NioEndpoint 的实现，它会把这个 Socket 交给 Poller 去查询 I/O 事件。AprEndpoint 也是这样做的，不过 AprEndpoint 的 Poller 并不是调用 Java NIO 里的 Selector 来查询 Socket 的状态，而是通过 JNI 调用 APR 中的 poll 方法，而 APR 又是调用了操作系统的 epoll API 来实现的。
+    public static native int bind(long sock, long sa);
+    public static native int listen(long sock, int backlog);
+    public static native long accept(long sock);
+    // 其它方法省略
+}
+```
+
+### 4.3.2.pollor
+
+Acceptor 接收到一个新的 Socket 连接后，它会把这个 Socket 交给 Poller 去查询 I/O 事件。 AprEndpoint 的 Poller 并不是调用 Java NIO 里的 Selector 来查询 Socket 的状态，而是通过 JNI 调用 APR 中的 poll 方法，而 APR 又是调用了操作系统的 epoll API 来实现的。
 
 AprEndpoint使用的内存空间是本地内存，相比于NioEndpoint和Nio2Endpoint的堆内存，少了复制操作
 
-# 4.线程池
+## 4.4.线程池
 
-tomcat扩展Java的线程池
+### 4.4.1.ThreadPoolExecutor
+
+Tomcat扩展了java里的线程池，提供`org.apache.tomcat.util.threads.ThreadPoolExecutor`，它改变了java原生线程池的执行逻辑，通过重写execute()方法：
 
 ```java
-// 定制版的任务队列
-taskqueue = new TaskQueue(maxQueueSize);
- 
-// 定制版的线程工厂
-TaskThreadFactory tf = new TaskThreadFactory(namePrefix,daemon,getThreadPriority());
- 
-// 定制版的线程池
-executor = new ThreadPoolExecutor(getMinSpareThreads(), getMaxThreads(), maxIdleTime, TimeUnit.MILLISECONDS,taskqueue, tf);
+public void execute(Runnable command, long timeout, TimeUnit unit) {
+    submittedCount.incrementAndGet();
+    try {
+        // 直接调用原生处理逻辑
+        super.execute(command);
+    } catch (RejectedExecutionException rx) {
+        // 如果核心线程满了，队列也满了，非核心线程也达到最大值，那么java原生线程池就会
+        // 拒绝这个任务，抛出RejectedExecutionException
+        if (super.getQueue() instanceof TaskQueue) {
+            final TaskQueue queue = (TaskQueue)super.getQueue();
+            try {
+                // 再继续尝试把任务添加到任务队列中去
+                if (!queue.force(command, timeout, unit)) {
+                    // 还是入队失败，则抛出RejectedExecutionException
+                    submittedCount.decrementAndGet();
+                    throw new RejectedExecutionException();
+                }
+            } catch (InterruptedException x) {
+                submittedCount.decrementAndGet();
+                throw new RejectedExecutionException(x);
+            }
+        } else {
+            submittedCount.decrementAndGet();
+            throw rx;
+        }
 
+    }
+}
 ```
 
-- Tomcat 有自己的定制版任务队列和线程工厂，并且可以限制任务队列的长度，它的最大长度是 maxQueueSize。
-- Tomcat 对线程数也有限制，设置了核心线程数（minSpareThreads）和最大线程池数（maxThreads）。
+### 4.4.2.TaskQueue
 
-Tomcat 线程池扩展了原生的 ThreadPoolExecutor，通过重写 execute 方法实现了自己的任务处理逻辑：
+Tomcat的线程池使用了定制化的阻塞队列，其实现为`org.apache.tomcat.util.threads.TaskQueue`，Tomcat重写了offer()方法，让这个阻塞队列在指定条件下能返回false，让线程池创建非核心线程
 
-1. 前 corePoolSize 个任务时，来一个任务就创建一个新线程。
-2. 再来任务的话，就把任务添加到任务队列里让所有的线程去抢，如果队列满了就创建临时线程。
-3. 如果总线程数达到 maximumPoolSize，**则继续尝试把任务添加到任务队列中去。**
-4. **如果缓冲队列也满了，插入失败，执行拒绝策略。**
+```java
+public class TaskQueue extends LinkedBlockingQueue<Runnable> {
+    @Override
+    public boolean offer(Runnable o) {
+        // 如果线程数已经到了最大值，不能创建新线程了，只能把任务添加到任务队列。
+        if (parent.getPoolSize() == parent.getMaximumPoolSize()) 
+            return super.offer(o);
 
-Tomcat 线程池和 Java 原生线程池的区别，其实就是在第 3 步，Tomcat 在线程总数达到最大数时，不是立即执行拒绝策略，而是再尝试向任务队列添加任务，添加失败后再执行拒绝策略
+        // 执行到这里，表明当前线程数大于核心线程数，并且小于最大线程数。
+        // 表明是可以创建新线程的，那到底要不要创建呢？分两种情况：
 
+        //1. 如果已提交的任务数小于当前线程数，表示还有空闲线程，无需创建新线程
+        if (parent.getSubmittedCount()<=(parent.getPoolSize())) 
+            return super.offer(o);
 
+        //2. 如果已提交的任务数大于当前线程数，线程不够用了，返回 false 去创建新线程
+        if (parent.getPoolSize() < parent.getMaximumPoolSize()) 
+            return false;
 
-名字里带有Acceptor的线程负责接收浏览器的连接请求。
+        // 默认情况下总是把任务添加到任务队列
+        return super.offer(o);
+    }
 
-名字里带有Poller的线程，其实内部是个Selector，负责侦测IO事件。
+}
+```
 
-名字里带有Catalina-exec的是工作线程，负责处理请求。
+这里还有一个小技巧，便于排查问题：
 
-名字里带有 Catalina-utility的是Tomcat中的工具线程，主要是干杂活，比如在后台定期检查Session是否过期、定期检查Web应用是否更新（热部署热加载）、检查异步Servlet的连接是否过期等等。
+- 名字里带有Acceptor的线程负责接收浏览器的连接请求
 
-# 5.对象池
+- 名字里带有Poller的线程，其实内部是个Selector，负责侦测IO事件
 
-所谓的对象池技术，就是说一个 Java 对象用完之后把它保存起来，之后再拿出来重复使用，省去了对象创建、初始化和 GC 的过程。对象池技术是典型的以**空间换时间**的思路。
+- 名字里带有Catalina-exec的是工作线程，负责处理请求
 
-比如 Tomcat 和 Jetty 处理 HTTP 请求的场景就符合这个特征，请求的数量很多，为了处理单个请求需要创建不少的复杂对象（比如 Tomcat 连接器中 SocketWrapper 和 SocketProcessor），而且一般来说请求处理的时间比较短，一旦请求处理完毕，这些对象就需要被销毁，因此这个场景适合对象池技术。
+- 名字里带有 Catalina-utility的是Tomcat中的工具线程，主要是干杂活，比如在后台定期检查Session是否过期、定期检查Web应用是否更新（热部署热加载）、检查异步Servlet的连接是否过期等等。
 
-Tomcat 用 SynchronizedStack 类来实现对象池
+## 4.5.对象池
 
-# *.心得
+所谓的对象池技术，就是说一个 Java 对象用完之后把它保存起来，之后再拿出来重复使用，省去了对象创建、初始化和 GC 的过程。对象池技术是典型的以**空间换时间**的思路。Tomcat连接器中的SocketWrapper 和SocketProcessor，需要处理Socket请求，但由于请求时间短，并不能每次请求都创建一个新的对象去处理，然后还要花时间销毁，这种场景下Tomcat选择使用对象池！
+
+### 4.5.1.SynchronizedStack 
+
+Tomcat 用 SynchronizedStack 类来实现对象池，它的源码如下：
+
+```java
+public class SynchronizedStack<T> {
+
+    // 内部维护一个对象数组, 用数组实现栈的功能
+    private Object[] stack;
+
+    // 这个方法用来归还对象，用 synchronized 进行线程同步
+    public synchronized boolean push(T obj) {
+        index++;
+        if (index == size) {
+            if (limit == -1 || size < limit) {
+                expand();// 对象不够用了，扩展对象数组
+            } else {
+                index--;
+                return false;
+            }
+        }
+        stack[index] = obj;
+        return true;
+    }
+
+    // 这个方法用来获取对象
+    public synchronized T pop() {
+        if (index == -1) {
+            return null;
+        }
+        T result = (T) stack[index];
+        stack[index--] = null;
+        return result;
+    }
+
+    // 扩展对象数组长度，以 2 倍大小扩展
+    private void expand() {
+        int newSize = size * 2;
+        if (limit != -1 && newSize > limit) {
+            newSize = limit;
+        }
+        // 扩展策略是创建一个数组长度为原来两倍的新数组
+        Object[] newStack = new Object[newSize];
+        // 将老数组对象引用复制到新数组
+        System.arraycopy(stack, 0, newStack, 0, size);
+        // 将 stack 指向新数组，老数组可以被 GC 掉了
+        stack = newStack;
+        size = newSize;
+    }
+}
+```
+
+# 5.容器
+
+## 5.1.Host
+
+## 5.2.Context
+
+## 5.3.异步Servlet
+
+# 6.会话管理
+
+# 7.集群管理
+
+# 8.性能优化
+
+## 8.1.启动优化
+
+### 8.1.1.启动前优化
+
+- 清理掉webapps目录下不需要的工程
+- 清理server.xml没必要的配置
+- 清理JAR文件，
+
+### 8.1.2.禁止Tomcat TLD扫描
+
+Tomcat 为了支持 JSP，在应用启动的时候会扫描 JAR 包里面的 TLD 文件，加载里面定义的标签库。因为目前web应用已经不再使用JSP，所以最好配置Tomcat不要去扫描这些JAR：
+
+- 如果项目没有使用 JSP 作为 Web 页面模板，完全可以把 TLD 扫描禁止掉。方法是，找到 Tomcat 的`conf/`目录下的`context.xml`文件，在这个文件里 Context 标签下，加上**JarScanner**和**JarScanFilter**子标签，如：
+
+  ```xml
+  <Context>
+  	<JarScanner>
+      	<JarScanFilter defaultTldScan="false"/>
+      </JarScanner>
+  </Context>
+  ```
+
+- 如果项目使用了 JSP 作为 Web 页面模块，意味着 TLD 扫描无法避免，但是可以通过配置来告诉 Tomcat，只扫描那些包含 TLD 文件的 JAR 包。方法是，找到 Tomcat 的`conf/`目录下的`catalina.properties`文件，在这个文件里的 jarsToSkip 配置项中，加上需要扫描的 JAR 包
+
+  ```properties
+  tomcat.util.scan.StandardJarScanFilter.jarsToSkip=xxx.jar
+  ```
+
+### 8.1.3.关闭WebSocket支持
+
+Tomcat 会扫描 WebSocket 注解的 API 实现，比如`@ServerEndpoint`注解的类，注解扫描一般是比较慢的，如果不需要使用 WebSockets 就可以关闭它。具体方法是，找到 Tomcat 的`conf/`目录下的`context.xml`文件，给 Context 标签加一个**containerSciFilter**的属性
+
+```xml
+<Context containerSciFilter="org.apache.tomcat.websocket.server.WsSci">
+</Context>
+```
+
+如果完全不需要WebSocket功能，可以把Tomcat lib目录下的`websocket-api.jar`和`tomcat-websocket.jar`这两个jar文件删除掉
+
+### 8.1.4.关闭JSP支持
+
+跟关闭 WebSocket 一样，如果你不需要使用 JSP，可以通过类似方法关闭 JSP 功能，通过`|`可以关闭多个：
+
+```xml
+<Context containerSciFilter="org.apache.tomcat.websocket.server.WsSci | org.apache.jasper.servlet.JasperInitializer">
+</Context>
+```
+
+### 8.1.5.禁止Servlet注解扫描
+
+Servlet 3.0 引入了注解 Servlet，Tomcat 为了支持这个特性，会在 Web 应用启动时扫描类文件，如果没有使用 Servlet 注解这个功能，可以告诉 Tomcat 不要去扫描 Servlet 注解。具体配置方法是，在你的 Web 应用的`web.xml`文件中，设置`<web-app>`元素的属性`metadata-complete="true"`，
+
+```xml
+<!-- metadata-complete的意思是web.xml配置的Servlet是完整的，不需要再去类库查找Servlet -->
+<web-app metadata-complete="true">
+</web-app>
+```
+
+### 8.1.6.配置Web-Fragment扫描
+
+Servlet 3.0 还引入了“Web 模块部署描述符片段”的`web-fragment.xml`，这是一个部署描述文件，可以完成`web.xml`的配置功能。而这个`web-fragment.xml`文件必须存放在 JAR 文件的`META-INF`目录下，而 JAR 包通常放在`WEB-INF/lib`目录下，因此 Tomcat 需要对 JAR 文件进行扫描才能支持这个功能。
+
+可以通过配置`web.xml`里面的`<absolute-ordering>`元素直接指定了哪些 JAR 包需要扫描`web fragment`，如果`<absolute-ordering/>`元素是空的， 则表示不需要扫描，像下面这样
+
+```xml
+<web-app>
+	...
+    <absolute-ordering/>
+    ...
+</web-app>
+```
+
+### 8.1.7.并行启动多个Web应用
+
+Tomcat 启动的时候，默认情况下 Web 应用都是一个一个启动的，等所有 Web 应用全部启动完成，Tomcat 才算启动完毕。如果在一个 Tomcat 下你有多个 Web 应用，为了优化启动速度，可以配置多个应用程序并行启动，可以通过修改`server.xml`中 Host 元素的 startStopThreads 属性来完成。startStopThreads 的值表示想用多少个线程来启动Web 应用，如果设成 0 表示要并行启动 Web 应用，像下面这样的配置。
+
+```xml
+<!--Engine 元素里也配置了这个参数，意味着若配置了多个 Host，Tomcat 会以并行的方式启动多个 Host-->
+<Engine startStopThreads="0">
+	<Host startStopThreads="0">
+    </Host>
+</Engine>
+```
+
+# 9.补充
 
 设计复杂系统的思路：
 

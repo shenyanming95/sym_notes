@@ -603,11 +603,369 @@ public class SynchronizedStack<T> {
 
 # 5.容器
 
-## 5.1.Host
+## 5.1.热更新机制
 
-## 5.2.Context
+Tomcat通过创建后台线程，定时扫描web资源，从而实现热更新（热加载和热部署）。它们的原理其实很简单，就是类加载机制。JVM可以在运行中，重新加载一个类，实现热加载；而热部署是在热加载的基础上在进行封装，在Tomcat世界里，其实就是对Context组件的卸载和重新装载的过程。
 
-## 5.3.异步Servlet
+Tomcat实际上是开启一个后台线程，周期性地扫描类文件和web应用的变化。而实现周期性功能的就是JDK自带的`java.util.concurrent.ScheduledExecutorService`，Tomcat通过它启动一个定时任务，这个定时任务是一个类，定义在ContainerBase里面 —` ContainerBackgroundProcessor`，它实现了Runnable接口，干的事情只有两个：调用当前容器的backgroundProcess()方法、调用子容器的backgroundProcess()方法
+
+```java
+protected class ContainerBackgroundProcessor implements Runnable {
+    
+    @Override
+    public void run() {
+        // run()方法会被定时任务线程池周期性地调用, 它实际调用的是下面的方法
+        processChildren(ContainerBase.this);
+    }
+
+    protected void processChildren(Container container) {
+        ClassLoader originalClassLoader = null;
+        try {
+            // 如果是Context组件, 判断它的类加载器是否为null
+            if (container instanceof Context) {
+                Loader loader = ((Context) container).getLoader();
+                if (loader == null) {
+                    return;
+                }
+                originalClassLoader = ((Context) container).bind(false, null);
+            }
+            // 调用当前容器的backgroundProcess()执行后台任务
+            container.backgroundProcess();
+            // 再调用所有子容器的backgroundProcess()
+            Container[] children = container.findChildren();
+            for (Container child : children) {
+                // 若子容器的backgroundProcessorDelay大于0, 说明有延迟, 父容器无需调用子容器
+                // 的周期性任务
+                if (child.getBackgroundProcessorDelay() <= 0) {
+                    processChildren(child);
+                }
+            }
+        } catch (Throwable t) {
+            ExceptionUtils.handleThrowable(t);
+            log.error(sm.getString("containerBase.backgroundProcess.error"), t);
+        } finally {
+            if (container instanceof Context) {
+                ((Context) container).unbind(false, originalClassLoader);
+            }
+        }
+    }
+}
+```
+
+Tomcat这种级联设计，真的值得学习借鉴！定义一个接口，父组件和子组件都实现这个接口，具有同样的方法。当父组件调用某一个方法时，可以级联调用它管理的子组件的相同方法，可以让代码实现得更优雅。Tomcat的生命周期组件也同样采用了这种设计，然后Tomcat就可以一键启停了！！！
+
+### 5.1.1.热加载
+
+当在Tomcat中修改Servlet类后，Tomcat可以在不停机的前提下，更新修改后的Servlet。这其中的原理就是上面所说的`ContainerBackgroundProcessor`内部类，当然具体实现这功能是交由`Context`容器来完成。Context组件重写了抽象父类`org.apache.catalina.core.ContainerBase#backgroundProcess()`方法：
+
+```java
+public void backgroundProcess() {
+    //WebappLoader 周期性的检查 WEB-INF/classes 和 WEB-INF/lib 目录下的类文件.
+    // 热加载实现的逻辑, 它实际调用的org.apache.catalina.core.StandardContext#reload()方法
+    Loader loader = getLoader();
+    if (loader != null) {
+        loader.backgroundProcess();        
+    }
+
+    //Session 管理器周期性的检查是否有过期的 Session
+    Manager manager = getManager();
+    if (manager != null) {
+        manager.backgroundProcess();
+    }
+
+    // 周期性的检查静态资源是否有变化
+    WebResourceRoot resources = getResources();
+    if (resources != null) {
+        resources.backgroundProcess();
+    }
+
+    // 调用父类 ContainerBase 的 backgroundProcess 方法
+    super.backgroundProcess();
+}
+```
+
+因为Tomcat是为每个Context容器分配一个独立的类加载器，通过类加载器可以将它加载过的类全部销毁掉。其主要流程其实调用了Context#reload()方法，大体上完成了：
+
+1. 停止和销毁 Context 容器及其所有子容器，子容器其实就是 Wrapper，也就是说 Wrapper 里面 Servlet 实例也被销毁了。
+2. 停止和销毁 Context 容器关联的 Listener 和 Filter。
+3. 停止和销毁 Context 下的 Pipeline 和各种 Valve。
+4. 停止和销毁 Context 的类加载器，以及类加载器加载的类文件资源。
+5. 启动 Context 容器，在这个过程中会重新创建前面四步被销毁的资源。
+
+但是Tomcat并没有执行Session 管理器的 distroy()方法，Context 关联的 Session未被销毁的，意味着热加载是不会清空Session的。Tomcat 的热加载默认是关闭的，你需要在 conf 目录下的 Context.xml 文件中设置 reloadable 参数来开启这个功能
+
+```xml
+<Context reloadable="true"/>
+```
+
+### 5.1.2.热部署
+
+热部署是动态更新web应用的，会重新部署 Web 应用，原来的 Context 对象会整个被销毁掉，因此这个 Context 所关联的一切资源都会被销毁，包括 Session。所以交给了`Host`容器来实现。Host并不像Context一样在`org.apache.catalina.Container#backgroundProcess()`方法直接实现热部署，它并没有重写抽象父类`ContainerBase`的backgroundProcess()方法，而是通过监听器`HostConfig` 来实现的。
+
+`Host`的父类`ContainerBase`在backgroundProcess()方法每当执行一个周期性任务，都会回调监听器，发布一个周期性任务事件：
+
+```java
+fireLifecycleEvent(Lifecycle.PERIODIC_EVENT, null);
+```
+
+这个事件会被`HostConfig`监听到，它的处理逻辑为：
+
+```java
+if (event.getType().equals(Lifecycle.PERIODIC_EVENT)) {
+    // 直接调用check()方法
+    check();
+}
+// 省略其它代码...
+
+
+// check()方法实现逻辑
+protected void check() {
+    if (host.getAutoDeploy()) {
+        // 检查这个 Host 下所有已经部署的 Web 应用
+        DeployedApplication[] apps =
+            deployed.values().toArray(new DeployedApplication[0]);
+        for (int i = 0; i < apps.length; i++) {
+            // 检查 Web 应用目录是否有变化
+            checkResources(apps[i], false);
+        }
+        // 执行部署
+        deployApps();
+    }
+}
+```
+
+- 如果原来 Web 应用目录被删掉了，就把相应 Context 容器整个销毁掉。
+- 是否有新的 Web 应用目录放进来了，或者有新的 WAR 包放进来了，就部署相应的 Web 应用
+
+## 5.2.应用隔离机制
+
+Tomcat支持部署多个Web应用，那么就会有这样这样几个问题？第一，不同web应用的同名Servlet如何区分开？第二，不同web应用相同的第三方jar依赖如何共享？这些问题Tomcat都实现好了，就是通过自定义类加载器来实现。
+
+### 5.2.1.WebAppClassLoader 
+
+Tomcat 的自定义类加载器 WebAppClassLoader 打破了双亲委托机制，它**首先自己尝试去加载某个类，如果找不到再代理给父类加载器**，其目的是优先加载 Web 应用自己定义的类。具体实现就是重写 ClassLoader 的两个方法：findClass 和 loadClass。
+
+- findClass()
+
+  ```java
+  public Class<?> findClass(String name) throws ClassNotFoundException {
+      // 省略部分代码...
+  
+      Class<?> clazz = null;
+      try {
+          //1. 先在 Web 应用目录下查找类 
+          clazz = findClassInternal(name);
+      }  catch (RuntimeException e) {
+          throw e;
+      }
+  
+      if (clazz == null) {
+          try {
+              //2. 如果在本地目录没有找到，交给父加载器去查找
+              clazz = super.findClass(name);
+          }  catch (RuntimeException e) {
+              throw e;
+          }
+  
+          //3. 如果父类也没找到，抛出 ClassNotFoundException
+          if (clazz == null) {
+              throw new ClassNotFoundException(name);
+          }
+  
+          return clazz;
+      }
+  ```
+
+- loadClass()
+
+  ```java
+  public Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
+  
+      synchronized (getClassLoadingLock(name)) {
+          Class<?> clazz = null;
+  
+          //1. 先在本地 cache 查找该类是否已经加载过
+          clazz = findLoadedClass0(name);
+          if (clazz != null) {
+              if (resolve)
+                  resolveClass(clazz);
+              return clazz;
+          }
+  
+          //2. 从系统类加载器的 cache 中查找是否加载过
+          clazz = findLoadedClass(name);
+          if (clazz != null) {
+              if (resolve)
+                  resolveClass(clazz);
+              return clazz;
+          }
+  
+          // 3. 尝试用 ExtClassLoader 类加载器类加载.
+          // 这一步是为了，防止 Web 应用自己的类覆盖 JRE 的核心类，但是Tomcat很机智，它并不是、
+          // 交给AppClassLoader加载，因为那样就变成了双亲委派机制了。它直接交给ExtClassLoader
+          // 加载，如果 ExtClassLoader 加载器加载失败，那说明这个类不是JRE核心类，所以Tomcat
+          // 可以自己加载了，在Web 应用目录下查找并加载
+          ClassLoader javaseLoader = getJavaseClassLoader();
+          try {
+              clazz = javaseLoader.loadClass(name);
+              if (clazz != null) {
+                  if (resolve)
+                      resolveClass(clazz);
+                  return clazz;
+              }
+          } catch (ClassNotFoundException e) {
+              // Ignore
+          }
+  
+          // 4. 尝试在本地目录搜索 class 并加载
+          try {
+              clazz = findClass(name);
+              if (clazz != null) {
+                  if (resolve)
+                      resolveClass(clazz);
+                  return clazz;
+              }
+          } catch (ClassNotFoundException e) {
+              // Ignore
+          }
+  
+          // 5. 尝试用系统类加载器 (也就是 AppClassLoader) 来加载。
+          // 如果本地目录下没有这个类，说明不是 Web 应用自己定义的类，那么由系统类加载器去加载。
+          // Web 应用是通过Class.forName调用交给系统类加载器的，因为Class.forName的默认加载
+          // 器就是系统类加载器
+          try {
+              clazz = Class.forName(name, false, parent);
+              if (clazz != null) {
+                  if (resolve)
+                      resolveClass(clazz);
+                  return clazz;
+              }
+          } catch (ClassNotFoundException e) {
+              // Ignore
+          }
+      }
+  
+      //6. 上述过程都加载失败，抛出异常
+      throw new ClassNotFoundException(name);
+  }
+  ```
+
+### 5.2.2.web隔离
+
+Tomcat 是通过设计多层次的类加载器来实现Web引用相互隔离的功能。都知道在JVM中，即便是以同一个类，如果它被两个不同的类加载器加载，得到的Class对象就不是同一个，即表示两个类。Tomcat就是基于这一点，设计如下所示的类加载器层次关系：
+
+![](./images/Tomcat类加载器关系.png)
+
+- **WebAppClassLoader**
+
+  每个Web应用，即每个Context都有自己的WebAppClassLoader，通过它加载出来的Servlet，即使是同名，也是属于两个不同的类！！！
+
+- **SharedClassLoader**
+
+  SharedClassLoader作为WebAppClassLoader的父类加载器，专门来加载 Web 应用之间共享的类。如果 WebAppClassLoader 没有加载到某个类，就会委托父加载器 SharedClassLoader 去加载这个类，SharedClassLoader 会在指定目录下加载共享类，之后返回给 WebAppClassLoader，解决第三方jar共享的问题
+
+- CatalinaClassLoader
+
+  CatalinaClassLoader专门来加载 Tomcat 自身的类，用于隔离 Tomcat 本身的类和 Web 应用的类
+
+- **CommonClassLoader**
+
+   CommonClassLoader，作为 CatalinaClassloader 和 SharedClassLoader 的父加载器，解决Tomcat 和各 Web 应用之间需要共享的第三方jar依赖。
+
+**Tomcat依赖jar的存放位置**
+
+1. 每个 Web 应用自己的 Java 类文件和依赖的 JAR 包，分别放在`WEB-INF/classes`和`WEB-INF/lib`目录下面。
+
+2. 多个应用共享的 Java 类文件和 JAR 包，分别放在 Web 容器指定的共享目录下。
+
+## 5.3.异步Servlet机制
+
+Servlet 3.0 中引入的异步 Servlet，Tomcat对其做了支持，它的思想是：让业务线程和Tomcat I/O线程分离开，将复杂耗时的业务计算移到业务线程池中进行，释放Tomcat的I/O线程，以便可以及时响应其它请求。
+
+### 5.3.1.使用方式
+
+使用异步Servlet需要操作两步：
+
+- 一是，将Servlet定义为异步的
+- 二是，获取异步上下文
+
+```java
+// 定义Servlet, 将其设置为异步Serlvet
+@WebServlet(name = "demo", urlPatterns = "/demo", asyncSupported = true)
+public class AsyncServletDemo extends HttpServlet {
+
+    // 业务线程池
+    private Executor executor;
+
+    @Override
+    protected void doPost(HttpServletRequest req, HttpServletResponse resp)
+        throws ServletException, IOException {
+        
+        // 获取上下文对象, 它保存了保存了请求和响应对象
+        AsyncContext asyncContext = req.startAsync();
+
+        // 业务线程池运算
+        executor.execute(()->{
+            // 复杂运算
+            // ...
+            
+            // 最后提交异步上下文, 如果业务执行时间太久, 默认超过30s, Tomcat的超时机制会把请求
+            // 断开, 这时如果调用complete()方法就会抛出IllegalStateException 
+            asyncContext.complete();
+        });
+
+    }
+}
+```
+
+### 5.3.2.实现原理
+
+- **Request和Resonse的异步处理**
+
+Tomcat对异步Servlet的实现，主要逻辑就是在`org.apache.catalina.connector.Request`中，上例当调用了req.startAsync()，实际会将Request和Response保存到`org.apache.catalina.core.AsyncContextImpl`中
+
+```java
+public AsyncContext startAsync() {
+    return startAsync(getRequest(),response.getResponse());
+}
+```
+
+开启异步线程后，自己定义的Servlet返回，通过[源码分析](Tomcat源码.md)知道，调用Tomcat容器处理Request的入口点在`org.apache.catalina.connector.CoyoteAdapter`的service()方法，当它发现当前请求属于异步Servlet请求时就不会将Request和Reponse刷新并销毁。然后请求返回给`org.apache.coyote.AbstractProtocol`，因为CoyoteAdapter在处理异步Servlet时，会返回`SocketState.LONG`，表示这个Socket还需要等待处理，ProtocolHandler收到这个状态值以后，就会将当前Socket对应的协议处理者 Processor保存起来，具体存放在`org.apache.coyote.AbstractProtocol`的`waitingProcessors`属性
+
+```java
+private final Set<Processor> waitingProcessors =
+            Collections.newSetFromMap(new ConcurrentHashMap<Processor, Boolean>());
+```
+
+- **Request异步执行结果的处理**
+
+当调用`ctx.complete()`方法时，实际上是触发了下面的代码
+
+```java
+// 修改异步请求的状态为ASYNC_COMPLETE
+request.getCoyoteRequest().action(ActionCode.ASYNC_COMPLETE, null);
+
+// 响应状态的逻辑就是下面这行代码, 调用了 Processor 的 processSocketEvent 方法，
+// 并且传入了操作码 OPEN_READ
+processSocketEvent(SocketEvent.OPEN_READ, true);
+```
+
+processSocketEvent()方法实际上就是将Socket（代码中的SocketWrapperBase）重新放到EndPoint的processSocket()方法中，创建新的SocketProcessor 任务类，由Tomcat线程池再去执行。注意此时的事件为`OPEN_READ`，这样子请求就不会发给容器，而是直接写回客户端。
+
+```java
+protected void processSocketEvent(SocketEvent event, boolean dispatch) {
+    SocketWrapperBase<?> socketWrapper = getSocketWrapper();
+    if (socketWrapper != null) {
+        socketWrapper.processSocket(event, dispatch);
+    }
+}
+```
+
+
+
+
+
+
 
 # 6.会话管理
 

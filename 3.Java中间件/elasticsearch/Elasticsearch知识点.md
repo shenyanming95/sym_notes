@@ -2,7 +2,11 @@
 
 # 1.ES简介
 
-Elasticsearch，简称ES，是一个基于Lucence的开源搜索引擎，通过简单的RESTful API隐藏了Lucence的复杂性；同时还是一个分布式文档数据库，文档中每个字段均可被索引，而且每个字段的数据均可被搜索，可以将ES部署成集群，它会自动寻找属于同一集群的节点；ES是使用Java构建的，使用ES需要先安装Java环境；ES2.0以上版本要求Java7环境，ES5.0以上版本要求Java8环境。
+Elasticsearch，简称ES，是一个基于Lucence的开源搜索引擎，通过简单的RESTful API隐藏了Lucene的复杂性；同时还是一个分布式文档数据库，文档中每个字段均可被索引，而且每个字段的数据均可被搜索，可以将ES部署成集群，它会自动寻找属于同一集群的节点；ES是使用Java构建的，使用ES需要先安装Java环境；ES5.0以上版本要求Java8环境
+
+Elasticsearch依赖于Java的搜索库Luence，而Luence引入了按段（Segment）搜索的概念。一个Luence index包含多个Segment和一个Commit point，其中一个Segment即为一个数据集，好比倒排索引；一个Commit point表示提交点，记录这所有已知的段
+
+![](./images/es与lucene.svg)
 
 ## 1.1.基本概念
 
@@ -32,7 +36,7 @@ document，即文档。是Lucene索引和搜索的原子单位，它是包含了
 
 - shard
 
-shard，即分片。是ES底层的工作单元，一个分片就是一个Lucence实例，它自身就是一个完整的搜索引擎。单台机器无法储存大量的数据，ES将一个索引( 即[index](#1.1.3.index) )的数据切分为多个shard，分布在多台服务器上存储。分片分为主分片(primary shard)和副分片(replica shard)，一般主分片简称为primary，副分片简称为replica。
+shard，即分片。是ES底层的工作单元，一个分片就是一个Lucence Index，它自身就是一个完整的搜索引擎。单台机器无法储存大量的数据，ES将一个索引( 即[index](#1.1.3.index) )的数据切分为多个shard，分布在多台服务器上存储。分片分为主分片(primary shard)和副分片(replica shard)，一般主分片简称为primary，副分片简称为replica。
 
 **主分片：**在索引建立时就已确定主分片数，**不能修改**，默认为5个。索引任意一个文档都归属于一个主分片，所以主分片的数目决定着索引能够保存的最大数据量。
 
@@ -136,9 +140,7 @@ discovery.zen.fd.ping_retries: 3
 discovery.zen.minimum_master_nodes=N/2+1
 ```
 
-### 2.2.2.索引过程(写入过程)
-
-#### 2.2.2.1.整体流程
+### 2.2.2.写入过程
 
 1. 客户端选择一个 node 发送请求过去，这个 node 就是协调节点；
 
@@ -148,29 +150,22 @@ discovery.zen.minimum_master_nodes=N/2+1
 
 4. 如果发现 primary node 和所有 replica node 都成功之后，就返回响应结果给客户端
 
-#### 2.2.2.2.底层细节
-
 ![](./images/ES索引过程.png)
 
-1. 节点接收到来自协调节点的请求后，会将请求写入到Memory Buffer，然后定时（默认是每隔1秒）写入到Filesystem Cache，这个从Momery Buffer到Filesystem Cache的过程就叫做refresh；
-
-2. 为防止Momery Buffer和Filesystem Cache的数据丢失，ES通过translog的机制来保证数据的可靠性。其实现机制是接收到请求后，同时也会写入到translog中，当Filesystem cache中的数据写入到磁盘中时，才会清除掉，这个过程叫做flush；
-
-3. 在flush过程中，内存中的缓冲将被清除，内容被写入一个新段，段的fsync将创建一个新的提交点，并将内容刷新到磁盘，旧的translog将被删除并开始一个新的translog。flush触发的时机是定时触发（默认30分钟）或者translog变得太大（默认为512M）时；
-
-总结：数据先写入内存 buffer，然后每隔 1s，将数据 refresh 到 os cache，到了 os cache 数据就能被搜索到（所以我们才说 es 从写入到能被搜索到，中间有 1s 的延迟）；每隔 5s，将数据写入 translog 文件（这样如果机器宕机，内存数据全没，最多会有 5s 的数据丢失），translog 大到一定程度，或者默认每隔 30mins，会触发 commit 操作，将缓冲区的数据都 flush 到 segment file 磁盘文件中。(数据写入 segment file 之后，同时就建立好了倒排索引)
+1. 节点接收到来自协调节点的请求后，会将数据先写入到In-memory buffer （内存缓冲区），此时数据还不可读取；
+2. 每隔1秒，In-memory buffer中的数据会刷新到Filesystem Cache（高速缓存），这个过程叫做**refresh**，此时数据可读取；所以新写入的数据最迟1秒后可读，这也是ES为啥称为准实时，而不是绝对实时的原因；
+3. 为防止数据丢失，ES通过translog机制保证可靠性（跟MySQL的binlog机制类似），数据在写入In-memory buffer的同时也会写入到translog中；当 buffer 中的数据每秒 refresh 到 cache 中时，translog 并没有刷新到磁盘，而是持续追加，它每隔5s会调用一次fsync操作同步到磁盘；
+4. translog 会一直累加，当 translog 大到一定程度或者每隔一段时间，会执行 flush过程：内存中的buffer将被清除，数据被写入一个新段（Segment），段的fsync将创建一个新的提交点（commit point），并将数据刷新到磁盘，旧的translog将被删除并开始一个新的translog。flush触发的时机是定时触发（默认30分钟）或者translog变得太大（默认为512M）时
 
 ### 2.2.3.更新过程
 
-更新过程包括文档更新和文档删除
+更新过程包括文档更新和文档删除，两者的区别不大。磁盘上的每个段（Segment）都有一个相应的`.del`文件，当删除请求发送后，文档并没有真的被删除，而是在`.del`文件中被标记为删除。该文档依然能匹配查询，但是会在结果中被过滤掉(此时文件未被真正删除)。而ES会启动一个后台线程，定期执行segment file的merge操作，会将多个 segment file 合并成一个，同时这里会将标识为 deleted 的 doc 给物理删除掉，然后将新的 segment file 写入磁盘(此时文件已被真正删除)。如果是更新操作，就是将原先的 doc 标识为 deleted 状态，然后新写入一条数据。
 
-#### 2.2.3.1.文档删除
+1. refresh操作会创建新的 segment 并打开以供搜索使用
+2. 合并线程选择一小部分大小相似的 segment，并且在后台将它们合并到更大的 segment 中，期间不会中断索引和搜索；
+3. 当合并结束，老的 segment 被删除
 
-磁盘上的每个段都有一个相应的.del文件，当删除请求发送后，文档并没有真的被删除，而是在.del文件中被标记为删除。该文档依然能匹配查询，但是会在结果中被过滤掉(此时文件未被真正删除)。ES会定期执行segment file的merge操作，会将多个 segment file 合并成一个，同时这里会将标识为 deleted 的 doc 给物理删除掉，然后将新的 segment file 写入磁盘(此时文件已被真正删除)
-
-#### 2.2.3.2.文档更新
-
-如果是更新操作，就是将原先的 doc 标识为 deleted 状态，然后新写入一条数据。
+![](./images/ES删除和更新流程.png)
 
 ### 2.2.4.搜索过程
 
@@ -178,13 +173,12 @@ ES的文档搜索过程分为两部分：query和fetch，被称为“Query Then 
 
 ![](./images/ES搜索过程.png)
 
-#### 2.2.4.1.query查询阶段
+**query查询阶段**
 
 1. 查询会广播到索引中每一个分片拷贝（主分片或者副本分片）。 每个分片在本地执行搜索并构建一个匹配文档的大小为 from + size 的优先队列。PS：在搜索的时候是会查询Filesystem Cache的，但是有部分数据还在Memory Buffer，所以搜索是近实时的
-
 2. 每个分片返回各自优先队列中 所有文档的 ID 和排序值给协调节点，它合并这些值到自己的优先队列中来产生一个全局排序后的结果列表
 
-#### 2.2.4.2.fetch取回阶段
+**fetch取回阶段**
 
 协调节点辨别出哪些文档需要被取回并向相关的分片提交多个 GET 请求。每个分片加载并丰富文档，如果有需要的话，接着返回文档给协调节点。一旦所有的文档都被取回了，协调节点返回结果给客户端。
 

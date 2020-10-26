@@ -1,12 +1,10 @@
-# 1.Bean生命周期
+# 1.【Bean生命周期流程】
 
-Bean是spring最基础、最根本的点，一个Bean其实就是一个组件，Bean的生命周期，其实就是学习spring是咋样实例化组件并且将其注册到容器中。spring 只会管理单例模式 Bean 的完整生命周期，对于 prototype类型的 bean，spring 在创建好交给使用者之后则不会再管理后续的生命周期。下图是spring的Bean工厂的整体类图：
+Bean是spring最基础、最根本的点，一个Bean其实就是一个组件，Bean的生命周期，其实就是学习spring是咋样实例化组件并且将其注册到容器中。spring 只会管理单例作用域的 Bean 的完整生命周期，对于 prototype类型的 bean，spring 在创建好交给使用者之后则不会再管理后续的生命周期。下图是spring的Bean工厂的整体类图：
 
 ![](./images/spring的Bean工厂的整体类图.png)
 
-## 1.1.Bean生命周期流程
-
-博客推荐：https://segmentfault.com/a/1190000015830477。spring创建Bean分为两个阶段：**实例化**和**初始化**
+spring创建Bean分为两个阶段：**实例化**和**初始化**
 
 1. 实例化：是一个创建Bean的过程，即反射调用构造函数，并为其属性赋值
 
@@ -14,7 +12,7 @@ Bean是spring最基础、最根本的点，一个Bean其实就是一个组件，
 
 ![](./images/spring生命周期流程.png)
 
-### 1.1.1.preInstantiateSingletons()
+## 1.1.preInstantiateSingletons()
 
 在IOC容器启动起点中，我们知道spring开始初始化Bean是在refresh()方法中finishBeanFactoryInitialization()方法，此方法的最后一行会调用DefaultListableBeanFactory类的preInstantiateSingletons()方法。这里就是Bean开始被加载到IOC容器的起点，源码：
 
@@ -48,7 +46,6 @@ public void preInstantiateSingletons() throws BeansException {
         // (这里源码做过简化处理，spring在这边加了SecurityManager安全判断)
         boolean isEagerInit = (factory instanceof SmartFactoryBean &&
                                ((SmartFactoryBean<?>) factory).isEagerInit());
-        
         if (isEagerInit) {
           getBean(beanName);
         }
@@ -72,7 +69,7 @@ public void preInstantiateSingletons() throws BeansException {
 }
 ```
 
-### 1.1.2.doGetBean()
+## 1.2.doGetBean()
 
 IOC容器中的所有getBean()方法，最终都是调用AbstractBeanFactory的doGetBean()方法。在这里会包含了整个Bean生命周期
 
@@ -233,7 +230,7 @@ IOC容器中的所有getBean()方法，最终都是调用AbstractBeanFactory的d
 }
 ```
 
-#### 1.1.2.1.返回Bean实例(FactoryBean处理)
+### 1.2.1.返回Bean实例(FactoryBean处理)
 
 如果缓存中已经存在Bean，spring会调用getObjectForBeanInstance()方法获取指定bean实例的对象，该实例可以是bean 实例本身，也可以是FactoryBean创建的对象。源码：
 
@@ -289,7 +286,7 @@ protected Object getObjectForBeanInstance( Object beanInstance, String name,
 }
 ```
 
-#### 1.1.2.2循环依赖判断(@DependsOn)
+### 1.2.2循环依赖判断(@DependsOn)
 
 spring会在这里解决@DependsOn注解引起的循环依赖（提醒：[实例化Bean的循环依赖](#3.1.7.Bean实例循环依赖)）它会调用DefaultSingletonBeanRegistry的isDependent()来判断是否发生循环依赖，但是在那之前需要先弄懂DefaultSingletonBeanRegistry的两个成员变量dependentBeanMap和dependenciesForBeanMap
 
@@ -338,7 +335,7 @@ private boolean isDependent(String beanName, String dependentBeanName,
     return false;
   
   // 递归中止条件三：依赖于当前Bean的其它Bean集合中包含当前Bean所依赖的Bean, 即发生
-  //                 循环依赖了, 方法返回true
+  // 循环依赖了, 方法返回true
   if (dependentBeans.contains(dependentBeanName)) 
     return true;
   
@@ -364,7 +361,7 @@ private boolean isDependent(String beanName, String dependentBeanName,
 }
 ```
 
-### 1.1.3.getSingleton
+## 1.3.getSingleton()
 
 当创建的Bean属于单例（即ConfigurableBeanFactory.SCOPE_SINGLETON），spring就会调用DefaultSingletonBeanRegistry的getSingleton()方法尝试先从缓存中获取，取不到在自己创建Bean。DefaultSingletonBeanRegistry有3个成员变量与方法getSingleton()有关，它们表示的意思如下：
 
@@ -449,7 +446,7 @@ public Object getSingleton(String beanName, ObjectFactory<?> singletonFactory) {
 }
 ```
 
-### 1.1.4.createBean()
+## 1.4.createBean()
 
 当spring缓存中没有当前需要的Bean实例，又或者Bean实例的作用域是非单例的(即多例和用户自定义的作用域)，spring就会调用createBean()方法来创建一个Bean实例，其实这里才是Bean生命周期的开始。源码为：
 
@@ -472,15 +469,15 @@ protected Object createBean(String beanName, RootBeanDefinition mbd,
     mbdToUse = new RootBeanDefinition(mbd);
     mbdToUse.setBeanClass(resolvedClass);
   }
-  
+
   try {
     // 验证当前Bean的重载方法(override)
     mbdToUse.prepareMethodOverrides();
   }catch (BeanDefinitionValidationException ex) {
     throw new BeanDefinitionStoreException(mbdToUse.getResourceDescription(),
-                beanName, "Validation of method overrides failed", ex);
+                                           beanName, "Validation of method overrides failed", ex);
   }
-  
+
   try {
     // 这边开始Bean生命周期的经典流程，转到Bean实例化前置处理
     Object bean = resolveBeforeInstantiation(beanName, mbdToUse);
@@ -488,16 +485,16 @@ protected Object createBean(String beanName, RootBeanDefinition mbd,
       return bean;
   }catch (Throwable ex) {
     throw new BeanCreationException(mbdToUse.getResourceDescription(), beanName,
-              "BeanPostProcessor before instantiation of bean failed", ex);
+                                    "BeanPostProcessor before instantiation of bean failed", ex);
   }
-  
+
   //开始真正创建Bean实例，调用doCreateBean()方法
   Object beanInstance = doCreateBean(beanName, mbdToUse, args);
   return beanInstance;
 }
 ```
 
-#### 1.1.4.1.Bean实例化前置处理
+### 1.4.1.Bean实例化前置处理
 
 在[createBean()](#3.1.4.createBean())方法中会调用所有InstantiationAwareBeanPostProcessor接口的postProcessBeforeInstantiation()方法。若有接口自己初始化Bean，spring就会回调BeanPostProcessor.postProcessAfterInitialization()，然后直接将此Bean返回，就不会再经spring之手初始化了...（在createBean()方法可以看到bean只要不为空，方法就返回了）
 
@@ -523,7 +520,7 @@ protected Object resolveBeforeInstantiation(String beanName,RootBeanDefinition m
 }
 ```
 
-### 1.1.5.doCreateBean()
+## 1.5.doCreateBean()
 
 若没有任何一个InstantiationAwareBeanPostProcessor能为当前Bean实例化一个实例，则spring就会尝试自己来实例化，调用doCreateBean()方法，从0到1创建出一个Bean出来，源码为：
 
@@ -644,7 +641,7 @@ protected Object doCreateBean(final String beanName, final RootBeanDefinition mb
 }
 ```
 
-#### 1.1.5.1.实例化Bean
+### 1.5.1.实例化Bean
 
 当没有任何InstantiationAwareBeanPostProcessor接口返回Bean实例，spring会选取合适的实例化策略(即：接口InstantiationStrategy)它会有三个策略：工厂方法、构造函数自动注入和简单初始化来实例化Bean：
 
@@ -703,7 +700,7 @@ protected BeanWrapper createBeanInstance(String beanName, RootBeanDefinition mbd
 
 InstantiationStrategy 接口定义了 Spring Bean 实例化的策略，根据创建对象情况的不同，提供了三种策略：无参构造方法、有参构造方法、工厂方法
 
-#### 1.5.2.Bean实例化后置处理
+### 1.5.2.Bean实例化后置处理
 
 当spring实例化Bean后，就该准备为其赋值，所以，它先回调InstantiationAwareBeanPostProcessor.postProcessAfterInstantiation()方法判断是否需要为该Bean赋值，如果有一个方法返回false，spring便不会为其赋值。
 
@@ -743,8 +740,7 @@ if (hasInstAwareBpps || needsDepCheck) {
     for (BeanPostProcessor bp : getBeanPostProcessors()) {
       if (bp instanceof InstantiationAwareBeanPostProcessor) {
         InstantiationAwareBeanPostProcessor ibp = (InstantiationAwareBeanPostProcessor) bp;
-        pvs = ibp.postProcessPropertyValues(pvs, filteredPds, 
-                                            bw.getWrappedInstance(), beanName);
+        pvs = ibp.postProcessPropertyValues(pvs, filteredPds, bw.getWrappedInstance(), beanName);
         if (pvs == null) 
           return;
       }
@@ -758,7 +754,7 @@ if (hasInstAwareBpps || needsDepCheck) {
 applyPropertyValues(beanName, mbd, bw, pvs);
 ```
 
-#### 1.1.5.3.回调Aware接口
+### 1.5.3.回调Aware接口
 
 到这步，spring已经将Bean实例好并且赋值好，然后它准备开始初始化实例Bean，它会开始执行AbstractAutowireCapableBeanFactory类的initializeBean()方法-1604行。首先判断Bean有无实现了各个***Aware接口，如果有便回调接口方法：
 
@@ -780,7 +776,7 @@ private void invokeAwareMethods(final String beanName, final Object bean) {
 }
 ```
 
-#### 1.1.5.4.回调后置处理器（初始化前）
+### 1.5.4.回调后置处理器（初始化前）
 
 再回调完Aware接口后，spring开始回调后置处理器BeanPostProcessor接口的postProcessBeforeInitialization()方法
 
@@ -808,7 +804,7 @@ public Object applyBeanPostProcessorsBeforeInitialization(Object existingBean,
 }
 ```
 
-#### 1.1.5.5.回调InitializingBean和init-method
+### 1.5.5.回调InitializingBean和init-method
 
 回调完所有的后置处理器后，spring会执行AbstractAutowireCapableBeanFactory的1624行，调用invokeInitMethods()方法。此方法会回调InitializingBean接口(如果此Bean有实现它)的afterPropertiesSet()方法，然后再调用\<bean>标签的init-method属性指定的方法（如果有指定init-method属性）
 
@@ -842,7 +838,7 @@ protected void invokeInitMethods(String beanName, final Object bean,
 }
 ```
 
-#### 1.1.5.6.回调后置处理器（初始化后）
+### 1.5.6.回调后置处理器（初始化后）
 
 [初始化Bean](#3.1.5.5.回调InitializingBean和init-method)后，spring就会回调所有后置处理器BeanPostProcessor的postProcessAfterInitialization()方法，完成所有属性赋值。代码会走到AbstractAutowireCapableBeanFactory的1632行，调用applyBeanPostProcessorsAfterInitialization()方法。这步走完，该Bean就可以给用户使用了。
 
@@ -869,7 +865,7 @@ public Object applyBeanPostProcessorsAfterInitialization(Object existingBean,
 }
 ```
 
-#### 1.1.5.7.注册Bean销毁适配器
+### 1.5.7.注册Bean销毁适配器
 
 走完上面几步，此Bean其实就已经实例和初始化好了，意味着可以用了。spring在最后一步，会判断它是否有实现DisposableBean接口或destroy-method属性，有的话将其注册到DefaultSingletonBeanRegistry的disposableBeans集合中，等到容器关闭时销毁Bean
 
@@ -914,7 +910,7 @@ protected void addSingleton(String beanName, Object singletonObject) {
 }
 ```
 
-### 1.1.6.销毁Bean
+## 1.6.销毁Bean
 
 spring容器关闭，它会先回调DisposableBean接口，调用其destroy()方法
 
@@ -942,7 +938,7 @@ private void invokeCustomDestroyMethod(final Method destroyMethod) {
 
 到此，整个spring的Bean生命周期就完了！！！
 
-### 1.1.7.循环依赖解决
+## 1.7.循环依赖解决
 
 这边的循环依赖不同于[@DependsOn注解的循环依赖](#_循环依赖判断)(未实例化对象)，这里的循环依赖是已经实例化好Bean，它实际就是初始化A需要依赖于B，初始化B又要依赖于C，而初始化C又要依赖于A，这就会导致循环依赖问题。如下：
 
@@ -956,7 +952,7 @@ private void invokeCustomDestroyMethod(final Method destroyMethod) {
 
 ③单例模式下的属性循环依赖：通过“三级缓存”处理循环依赖。
 
-#### 1.1.7.1.三级缓存
+### 1.7.1.三级缓存
 
 为了解决属性之间的循环依赖问题，spring定义了3个Map，用来表示三级缓存，它们位于DefaultSingletonBeanRegistry下，源码：
 
@@ -975,7 +971,7 @@ private final Map<String, ObjectFactory<?>> singletonFactories =
 		new HashMap<String, ObjectFactory<?>>(16);
 ```
 
-#### 1.1.7.2.执行流程
+### 1.7.2.执行流程
 
 以源码的角度来看spring是如何利用这些三个缓存实现循环依赖的处理的：
 
@@ -1027,7 +1023,7 @@ if (earlySingletonExposure) {
   addSingletonFactory(beanName, () -> getEarlyBeanReference(beanName, mbd, bean));
 }
 
-//源码：DefaultSingletonBeanRegistry – 160行
+	//源码：DefaultSingletonBeanRegistry – 160行
   protected void addSingletonFactory(String beanName, ObjectFactory<?> singletonFactory) {
   Assert.notNull(singletonFactory, "Singleton factory must not be null");
   synchronized (this.singletonObjects) {
@@ -1057,7 +1053,7 @@ protected void addSingleton(String beanName, Object singletonObject) {
 }
 ```
 
-#### 1.1.7.3.流程例子
+### 1.7.3.流程例子
 
 网上博客的一个例子，诠释循环依赖的流程：
 
@@ -1069,15 +1065,15 @@ protected void addSingleton(String beanName, Object singletonObject) {
 
 4. 回到B，B也可以拿到C对象，完成初始化，A可以顺利拿到B完成初始化。到这里整个链路就已经完成了初始化过程了。
 
-# 2.Bean生命周期接口
+# 2.【Bean生命周期接口】
 
 spring有4种bean生命周期接口和方法
 
 ## 2.1.Bean自身方法
 
-Bean自身方法，就是对某个Bean自己有作用而已，不会影响其他Bean的创建。即在spring配置文件中，<bean>的init-method和destroy属性
+Bean自身方法，就是对某个Bean自己有作用而已，不会影响其他Bean的创建。即在spring配置文件中，\<bean>的init-method和destroy属性
 
-## 2.2.Bean级生命周期接口
+## 2.2.组件级生命周期接口
 
 Bean级生命周期接口，对实现接口的Bean起作用，主要有：各类***Aware接口、InitializingBean和DisposableBean，这些接口由bean直接实现。
 
@@ -1312,8 +1308,6 @@ private void invokeAwareInterfaces(Object bean) {
 ### 2.5.3.AutowiredAnnotationBeanPostProcessor
 
 @Autowire和@Value注解的后置处理器
-
-
 
 
 

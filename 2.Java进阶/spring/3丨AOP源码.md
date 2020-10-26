@@ -1,8 +1,8 @@
+# 1.AOP基础
+
 AOP全称是Aspect Oriented Programming，即面向切面的编程。它是一种设计理念，将一些通用、特殊的代码从业务逻辑中脱离出来，独立存在，以非侵入的方式与原方法进行协同。AOP采取横向抽取机制，取代了传统的纵向继承体系重复代码。
 
-小常识：AOP并非是spring 独创，AOP有自己的标准，也有机构在维护这个标准。spring AOP 也遵循相关标准，所以别认为AOP是Spring 独创的
-
-# 1.AOP基础
+小常识：AOP并非是spring 独创，AOP有自己的标准，也有机构在维护这个标准。spring AOP 也遵循相关标准，所以别认为AOP是Spring 独创的。
 
 ## 1.1.AOP术语
 
@@ -253,7 +253,7 @@ return rvt;
 }
 ```
 
-# 3.aop源码
+# 3.AOP源码
 
 理解spring源码一个很常用的方式就是从它的@Enable**这种注解开始；AOP对应的注解为：@EnableAspectJAutoProxy，很明显它为IOC容器中导入了组件AspectJAutoProxyRegistrar。该组件默认会给IOC容器注入一个名为org.springframework.aop.config.internalAutoProxyCreator的组件AnnotationAwareAspectJAutoProxyCreator，就是它给AOP创建代理对象，它的完整类继承图如下：
 
@@ -402,9 +402,9 @@ protected Object wrapIfNecessary(Object bean, String beanName, Object cacheKey) 
     return bean;
   }
   /* 
- * 普通类就可以执行到这里, 因为普通类才需要做代理, 切面类不需要, 它仅仅是定义通知方法
- * 下面的代码就是为增强通知的普通类构造代理对象..
- */
+ 	 * 普通类就可以执行到这里, 因为普通类才需要做代理, 切面类不需要, 它仅仅是定义通知方法
+   * 下面的代码就是为增强通知的普通类构造代理对象..
+   */
   // 获取当前Bean需要的所有增强器(即切入点表达式能作用到当前Bean的所有增强方法)
   // 它首先会找到BeanFactory内的所有增强器, 然后根据切入点Pointcut的表达式, 
   // 来匹配增强器是否可以作用于当前Bean, 若匹配将此增强器保存到集合, 最后将集合排序
@@ -441,8 +441,7 @@ protected Object createProxy( Class<?> beanClass, String beanName,
     AutoProxyUtils.exposeTargetClass(
       (ConfigurableListableBeanFactory) this.beanFactory, beanName, beanClass);
   }
-  // 创建代理工厂, 并从当前对象拷贝部分变量的值, this指
-  // AnnotationAwareAspectJAutoProxyCreator
+  // 创建代理工厂, 并从当前对象拷贝部分变量的值, this指 AnnotationAwareAspectJAutoProxyCreator
   ProxyFactory proxyFactory = new ProxyFactory();
   proxyFactory.copyFrom(this);
   
@@ -554,8 +553,7 @@ final class JdkDynamicAopProxy implements AopProxy, InvocationHandler, Serializa
     // 找出被代理类的所有接口, 这里可能还会加上spring自带的3个接口, 分别是：
     // SpringProxy、Advised、DecoratingProxy(根据被代理类条件判断是否要添加)
     // 源码：AopProxyUtils -- 104
-    Class<?>[] proxiedInterfaces = 
-      AopProxyUtils.completeProxiedInterfaces(this.advised, true);
+    Class<?>[] proxiedInterfaces = AopProxyUtils.completeProxiedInterfaces(this.advised, true);
     // 判断被代理类的所有接口, 是不是有重写了equal()和hashcode()方法, 如果设置了
     // 会把JdkDynamicAopProxy的equalsDefined和hashCodeDefined变量置为true..
     findDefinedEqualsAndHashCodeMethods(proxiedInterfaces);
@@ -607,8 +605,7 @@ public Object getProxy(ClassLoader classLoader) {
     // 设置 NamingPolicy, 通过它来为动态生成的类取名, 默认就是“***$$***”这样子的类名
     enhancer.setNamingPolicy(SpringNamingPolicy.INSTANCE);
     // 设置 GeneratorStrategy, 通过它来生成字节码
-    enhancer.setStrategy(new ClassLoaderAwareUndeclaredThrowableStrategy
-                         (classLoader));
+    enhancer.setStrategy(new ClassLoaderAwareUndeclaredThrowableStrategy(classLoader));
     // 获取拦截器链, 这个方法比较重要
     Callback[] callbacks = getCallbacks(rootClass);
     Class<?>[] types = new Class<?>[callbacks.length];
@@ -642,8 +639,6 @@ private Callback[] getCallbacks(Class<?> rootClass) throws Exception {
   // 通用的AOP回调拦截器
   Callback aopInterceptor = new DynamicAdvisedInterceptor(this.advised);
   // 创建一个直接调用被代理类原方法的拦截器, 可能需要暴露代理对象实例...有待分析
-  // Choose a "straight to target" interceptor. (used for calls that are
-  // unadvised but can return this). May be required to expose the proxy.
   Callback targetInterceptor;
   if (exposeProxy) {
     targetInterceptor = isStatic ? new StaticUnadvisedExposedInterceptor
@@ -654,10 +649,7 @@ private Callback[] getCallbacks(Class<?> rootClass) throws Exception {
       (this.advised.getTargetSource().getTarget()) :
     new DynamicUnadvisedInterceptor(this.advised.getTargetSource());
   }
-  // 创建一个直接调用被代理类原方法的拦截器, 用于对无法返回此值的静态目标的不增强调用
-  // 有待分析...
-  // Choose a "direct to target" dispatcher (used for
-  // unadvised calls to static targets that cannot return this).
+  // 创建一个直接调用被代理类原方法的拦截器, 用于对无法返回此值的静态目标的不增强调用...有待分析
   Callback targetDispatcher = isStatic ?
     new StaticDispatcher(this.advised.getTargetSource().getTarget()) : 
   new SerializableNoOp();
@@ -1059,11 +1051,7 @@ public MethodInterceptor[] getInterceptors(Advisor advisor) {
 
 ## 3.3.链式调用通知
 
-通过[获取拦截器链](#3.2.获取拦截器链)分析，可得jdk代理是实例化ReflectiveMethodInvocation来链式调用；而cglib代理实例化CglibMethodInvocation进行链式调用。其实CglibMethodInvocation 继承于 ReflectiveMethodInvocation，所以实际上的链式调用，不论是jdk还是cglib，都是到ReflectiveMethodInvocation下完成执行它的proceed()方法
-
-### 3.3.1.proceed()
-
-这个方法的执行，就是整个拦截器链的触发过程，它其实是一个递归函数
+通过[获取拦截器链](#3.2.获取拦截器链)分析，可得jdk代理是实例化ReflectiveMethodInvocation来链式调用；而cglib代理实例化CglibMethodInvocation进行链式调用。其实CglibMethodInvocation 继承于 ReflectiveMethodInvocation，所以实际上的链式调用，不论是jdk还是cglib，都是到ReflectiveMethodInvocation下完成执行它的proceed()方法，这个方法的执行，就是整个拦截器链的触发过程，它其实是一个递归函数
 
 ```java
 //源码：ReflectiveMethodInvocation -- 154行
@@ -1109,7 +1097,7 @@ public Object proceed() throws Throwable {
 }
 ```
 
-#### 3.3.1.1.ExposeInvocationInterceptor
+### 3.3.1.ExposeInvocationInterceptor
 
 每个方法拦截器链，spring默认都会为其加上ExposeInvocationInterceptor对象，所以每次调用拦截器链时，第一个调用的都是它的invoke()方法，源码：
 
@@ -1130,7 +1118,7 @@ public Object invoke(MethodInvocation mi) throws Throwable {
 }
 ```
 
-#### 3.3.1.2.AspectJAfterThrowingAdvice
+### 3.3.2.AspectJAfterThrowingAdvice
 
 AspectJAfterThrowingAdvice处于拦截器链的第二个位置，它就是**异常通知**，会被第二个调用，然后倒数第二个返回，看它的invoke()方法：
 
@@ -1150,7 +1138,7 @@ public Object invoke(MethodInvocation mi) throws Throwable {
 }
 ```
 
-#### 3.3.1.3.AfterReturningAdviceInterceptor
+### 3.3.3.AfterReturningAdviceInterceptor
 
 AfterReturningAdviceInterceptor处于拦截器链的第三个位置，它就是**后置通知**，会被第三个调用，然后倒数第三个返回。源码为：
 
@@ -1161,13 +1149,12 @@ public Object invoke(MethodInvocation mi) throws Throwable {
   Object retVal = mi.proceed();
   // 如果被代理类原方法执行没错, 而且后面的通知方法也执行没异常, 它才可以执行
   // 否则抛出异常, 下面这行代码就不会被执行了...
-  this.advice.afterReturning(retVal, mi.getMethod(), mi.getArguments(), 
-                             mi.getThis());
+  this.advice.afterReturning(retVal, mi.getMethod(), mi.getArguments(), mi.getThis());
   return retVal;
 }
 ```
 
-#### 3.3.1.4.AspectJAfterAdvice
+### 3.3.4.AspectJAfterAdvice
 
 AspectJAfterAdvice处于拦截器链的第四个位置，它就是**最终通知**（不管被代理类原方法执行成功或失败，都会执行），会被第四个调用，源码为：
 
@@ -1188,7 +1175,7 @@ public Object invoke(MethodInvocation mi) throws Throwable {
 
 在方法拦截器链上，[后置通知](#_AfterReturningAdviceInterceptor.inv)比[最终通知](#_AspectJAfterAdvice.invoke())先调用，那反过来最终通知就会比后置通知先返回，即先执行，所以一般都会看到：当一个方法既有后置通知也有最终通知，都是最终通知先打印结果，后置通知再打印！！
 
-#### 3.3.1.5.AspectJAroundAdvice
+### 3.3.5.AspectJAroundAdvice
 
 AspectJAroundAdvice处于拦截器链的第五个位置，它就是环绕通知，在方法拦截器链上倒数第二个被调用，相反地，它就会第二个返回。源码：
 
@@ -1215,7 +1202,7 @@ public Object proceed(Object[] arguments) throws Throwable {
 }
 ```
 
-#### 3.3.1.6.MethodBeforeAdviceInterceptor
+### 3.3.6.MethodBeforeAdviceInterceptor
 
 MethodBeforeAdviceInterceptor就是前置通知，在方法拦截器链上最后一个被调用，反过来它就会比前面5个拦截器先执行先返回。源码：
 
@@ -1233,4 +1220,3 @@ public Object invoke(MethodInvocation mi) throws Throwable {
   return mi.proceed();
 }
 ```
-

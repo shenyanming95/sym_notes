@@ -1,6 +1,4 @@
-dubbo版本：2.7.6.
-
-# 4.dubbo扩展机制
+# 1.dubbo扩展机制
 
 dubbo spi的核心类为：org.apache.dubbo.common.extension.ExtensionLoader，获取扩展类实体也是通过它，一般我们可以通过如下两行代码获取扩展类：
 
@@ -11,7 +9,7 @@ ExtensionLoader.getExtensionLoader(LoadBalance.class).getExtension("my-loadBalan
 
 一个是获取默认的扩展类，一个是获取指定名称的扩展类
 
-## 4.1.getExtensionLoader()
+## 1.1.getExtensionLoader()
 
 getExtensionLoader()是为了获取一个ExtensionLoader实例，不同Class类型的扩展类，dubbo都会为其创建一个ExtensionLoader实例
 
@@ -43,7 +41,7 @@ public static <T> ExtensionLoader<T> getExtensionLoader(Class<T> type) {
 }
 ```
 
-## 4.2.new ExtensionLoader()
+## 1.2.new ExtensionLoader()
 
 调用ExtensionLoader的构造方法，创建一个ExtensionLoader实例，type就是我们定义的扩展类接口
 
@@ -78,7 +76,7 @@ public interface ExtensionFactory {
 }
 ```
 
-### 4.2.1.getAdaptiveExtension()
+### 1.2.1.getAdaptiveExtension()
 
 getAdaptiveExtension()方法是dubbo为了获取ExtensionFactory实例调用的方法
 
@@ -115,7 +113,7 @@ public T getAdaptiveExtension() {
 }
 ```
 
-### 4.2.2.createAdaptiveExtension()
+### 1.2.2.createAdaptiveExtension()
 
 ```java
 // 源码：ExtensionLoader - 996行
@@ -129,7 +127,7 @@ private T createAdaptiveExtension() {
 }
 ```
 
-## 4.3.getExtension()
+## 1.3.getExtension()
 
 上面方法走完以后，ExtensionLoader的扩展类加载器缓存就会有两个实例：
 
@@ -163,7 +161,7 @@ public T getExtension(String name) {
  }
 ```
 
-### 4.3.1.createExtension()
+### 1.3.1.createExtension()
 
 通过调用createExtension()方法来创建扩展类实例
 
@@ -197,7 +195,7 @@ private T createExtension(String name) {
 }
 ```
 
-### 4.3.2.getExtensionClasses()
+### 1.3.2.getExtensionClasses()
 
 getExtensionClasses()就是加载配置文件，把它的Class类型保存起来，
 
@@ -218,7 +216,7 @@ private Map<String, Class<?>> getExtensionClasses() {
 }
 ```
 
-### 4.3.3.loadExtensionClasses()
+### 1.3.3.loadExtensionClasses()
 
 通过加载策略，加载配置文件，获取扩展类接口的Class对象
 
@@ -243,7 +241,7 @@ private Map<String, Class<?>> loadExtensionClasses() {
 }
 ```
 
-### 4.3.4.loadDirectory()
+### 1.3.4.loadDirectory()
 
 真正加载配置文件，通过java的URL对象
 
@@ -285,7 +283,7 @@ private void loadDirectory(Map<String, Class<?>> extensionClasses, String dir, S
     }
 ```
 
-### 4.3.5.loadResource()
+### 1.3.5.loadResource()
 
 loadResource()就是加载到配置文件，然后使用BufferedReader按行读取
 
@@ -331,7 +329,7 @@ private void loadResource(Map<String, Class<?>> extensionClasses, ClassLoader cl
     }
 ```
 
-### 4.3.6.loadClass()
+### 1.3.6.loadClass()
 
 缓存加载出来的Class和name
 
@@ -369,3 +367,6 @@ private void loadClass(Map<String, Class<?>> extensionClasses, java.net.URL reso
     }
 ```
 
+# 2.服务暴露
+
+Dubbo做服务暴露分为两大部分， 第一步将持有的服务实例通过代理转换成Invoker,第二步会把Invoker通过具体的协议（比如Dubbo）转换成Exporter

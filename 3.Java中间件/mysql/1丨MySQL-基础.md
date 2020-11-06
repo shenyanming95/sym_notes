@@ -1,4 +1,4 @@
-# 1.MySQL概述
+# 1.【MySQL概述】
 
 ## 1.1.体系结构
 
@@ -31,27 +31,25 @@
 - InnoDB
   - redo log - 重做日志，InnoDB就可以保证即使数据库发生异常重启，之前提交的记录都不会丢失，这个能力称为**crash-safe**。该日志是循环写的，空间固定会用完，会清掉之前写入的日志。
 
-## 1.3.SQL流程
+## 1.3.SQL类别
 
-结合redo log 和 binlog，简单分析下 mysql 的更新语句执行流程，假设 sql如下：
+SQL 语句，全称为Structure Query Language（结构化查询语言）主要分为以下 3 个类别：
 
-```sql
-update T set c=c+1 where ID=2;
-```
+- **DDL（Data Definition Language）语句：**数据定义语言，这些语句定义了不同的数据段、数据库、表、列、索引等数据库对象的定义。常用的语句关键字主要包括 create、drop、alter等
 
-1. 执行器先找引擎取ID=2这一行。ID是主键，存储引擎直接用树搜索找到这一行。如果ID=2这一行所在的数据页本来就在内存中，就直接返回给执行器；否则，需要先从磁盘读入内存，然后再返回；
-2. 执行器拿到引擎给的行数据，把这个值加上1，比如原来是N，现在就是N+1，得到新的一行数据，再调用引擎接口写入这行新数据
-3. 引擎将这行新数据更新到内存中，同时将这个更新操作记录到redo log里面，此时redo log处于prepare状态。然后告知执行器执行完成了，随时可以提交事务；
-4. 执行器生成这个操作的binlog，并把binlog写入磁盘；
-5. 执行器调用引擎的提交事务接口，引擎把刚刚写入的redo log改成提交（commit）状态，更新完成
+- **DML（Data Manipulation Language）语句：**数据操纵语句，用于添加、删除、更新和查询数据库记录，并检查数据完整性，常用的语句关键字主要包括 insert、delete、udpate 和select 等(增添改查）
 
-mysql 使用 redo 日志来进行错误恢复，DBA 会使用 binlog 来进行数据备份。因此，mysql 在处理 binglog 和 redo log 的数据存储时，使用了二阶段提交协议，保证这两个日志文件的一致性。
+- **DCL（Data Control Language）语句：**数据控制语句，用于控制不同数据段直接的许可和访问级别的语句。这些语句定义了数据库、表、字段、用户的访问权限和安全级别。主要的语句关键字包括 grant、revoke 等
 
-# 2.InnoDB存储引擎
+# 2.【InnoDB存储引擎】
 
 ## 2.1.体系结构
 
-InnoDB存储引擎是MySQL在5.5.8版本之后默认使用的，特点是：支持事务，行锁设计，支持外键。InnoDB通过使用多版本并发控制（MVCC）获得高并发性，并且实现了SQL标准的4种隔离级别，默认为REPEATABLE级别。
+InnoDB存储引擎是MySQL在5.5.8版本之后默认使用的，特点是：支持事务，行锁设计，支持外键。InnoDB通过使用多版本并发控制（MVCC）获得高并发性，并且实现了SQL标准的4种隔离级别，默认为REPEATABLE级别。InnoDB的架构，包括两大部分，内存结构（In-Memory Structures）和磁盘上的结构（On-Disk Structures）
+
+![](./images/InnoDB体系结构.jpeg)
+
+如果单看 InnoDB内存数据对象，就如下图所示：
 
 ![](./images/InnoDB体系结构.jfif)
 
@@ -198,7 +196,7 @@ InnoDB采用异步IO（Asynchronous IO，AIO）的方式来处理磁盘操作，
 
 Flush Neighbor Page，刷新邻接页。当刷新一个脏页时，InnoDB存储引擎会检测该页所在区（extent）的所有页，如果是脏页，那么一起进行刷新
 
-# 6.主从复制
+# 6.【主从复制】
 
 mysql集群的负载均衡，读写分离和高可用都是基于复制实现。它的复制机制分为：异步复制、半同步复制和并行复制。
 

@@ -4,7 +4,7 @@ netty可以由一句话概括：**异步<sup>①</sup>**的**事件驱动<sup>�
 
 ![](./images/netty架构.png)
 
-netty基于java-nio，用来快速开发高性能、高可靠性的网络服务器和客户端程序。使用 netty 可以确保快速和简单地开发出一个网络应用，例如实现了某种协议的客户，服务端应用。netty 相当简化和流线化了网络应用的编程开发过程，例如：TCP和UDP的socket 服务开发！
+netty可以用来快速开发高性能、高可靠性的网络服务器和客户端程序。使用 netty 可以确保快速和简单地开发出一个网络应用，例如实现了某种协议的客户，服务端应用。netty 相当简化和流线化了网络应用的编程开发过程，例如：TCP和UDP的socket 服务开发！
 
 # 2.Reactor模式
 
@@ -16,7 +16,7 @@ reactor模式就是来解决`thread per connection`问题的，它的设计理�
 
 ## 2.1.演变过程
 
-以下图总结自大神Doug Lea的Reactor模式一文，膜拜大佬！[http://gee.cs.oswego.edu/dl/cpjslides/nio.pdf](http://gee.cs.oswego.edu/dl/cpjslides/nio.pdf)
+以下图总结自Doug Lea的Reactor模式一文，膜拜大佬！[http://gee.cs.oswego.edu/dl/cpjslides/nio.pdf](http://gee.cs.oswego.edu/dl/cpjslides/nio.pdf)
 
 ### 2.1.1.thread_per_connection
 

@@ -326,7 +326,7 @@ NioEventLoop(NioEventLoopGroup parent, Executor executor,
   }
   // 将方法参数的selectorProvider赋值给成员变量provider, 此对象根据操作系统不同而不同.
   provider = selectorProvider;
-  // 调用openSelector()获取SelectorTuple对象, 然后将SelectorTuple的slector对象赋给
+  // 调用openSelector()获取SelectorTuple对象, 然后将SelectorTuple的selector对象赋给
   // 成员变量selector(经过netty优化过的nio选择器Selector); 将selectorTuple的
   // unwrappedSelector赋给成员变量unwrappedSelector(原生的nio选择器Selector).
   final SelectorTuple selectorTuple = openSelector();
@@ -615,7 +615,7 @@ final ChannelFuture initAndRegister() {
     // 通过ChannelFactory创建一个通道, 默认使用反射的方式ReflectiveChannelFactory.
     // ReflectiveChannelFactory需要指定一个Class对象, 它通过反射调用它的无参构造方法
     // 创建一个Channel实例, 大部分情况下这个Class对象为：NioServerSocketChannel.
-    // 这里就会调用NioServerSockerChannel的无参构造方法创建它的实例, 即创建通道
+    // 这里就会调用NioServerSocketChannel的无参构造方法创建它的实例, 即创建通道
     channel = channelFactory.newChannel();
     // 上一步完成, 可以获取到通道实例, 紧接着调用init()方法初始化通道
     init(channel);
@@ -1103,7 +1103,7 @@ public final void register(EventLoop eventLoop, final ChannelPromise promise) {
         // 若任务提交失败
         closeForcibly(); //调用javaChannel()方法获取nio通道将其关闭
         closeFuture.setClosed(); //设值CloseFuture, 通知它旗下的监听器, 已关闭通道
-        safeSetFailure(promise, t);//将方法参数promise置为fialure, 通知旗下监听器
+        safeSetFailure(promise, t);//将方法参数promise置为failure, 通知旗下监听器
       }
   }
 }
@@ -1152,7 +1152,7 @@ private void register0(ChannelPromise promise) {
             pipeline.fireChannelActive();
         } else if (config().isAutoRead()) {
             // config().isAutoRead()当且仅当ChannelHandlerContext.read()会自动被
-            // 调用而无需用户程序主动调时, 返回ture(即当前通道可以自动读取)
+            // 调用而无需用户程序主动调时, 返回true(即当前通道可以自动读取)
             // 才会调用beginRead()方法
             beginRead();
         }
@@ -1187,7 +1187,7 @@ protected void doRegister() throws Exception {
     } catch (CancelledKeyException e) {
         if (!selected) {
           // 强制Selector立即选择， 因为“取消的”选择键可能仍被缓存并且未被删除, 
-          // 因为尚未调用Selectselect操作
+          // 因为尚未调用Select.select()操作
           eventLoop().selectNow();
           selected = true;
         } else {

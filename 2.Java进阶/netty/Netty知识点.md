@@ -1050,3 +1050,78 @@ while(1){
 | DelimiterBasedFrameDecoder | 基于分隔符解决，指定一个分隔符作为消息结尾                   |
 | FixedLengthFrameDecoder    | 指定长度解决。指定消息头和消息体，消息头的值就是消息体的数据大小 |
 | 无组件                     | 自定义协议，即规定消息如何划分个体，例如dubbo，自定义数据传输协议，然后client和server按照这个协议将字节流转换成消息。 |
+
+## *.4.keepalive和idle
+
+idle检测，只是负责诊断，诊断后作出不同的行为，一般用来配合keepalive，减少keepalive消息。有数据传输时，不会发送keepalive消息；无数据传输超过一定时间，判定为idle，再发keepalive消息
+
+### *.4.1.传输层
+
+keeplive是保证TCP通信双方不会因为某一方未响应的原因而久久等待，但是这种情况出现的概率小，所以没有必要做频繁的检测（浪费网络带宽）。TCO keeplive核心参数如下：
+
+- net.ipv4.tcp_keepalive_time=7200 ，对端7200s未传递数据时对其检测是否存活
+- net.ipv4.tcp_keepalive_intvl=75 ，下一个探测的间隔时间，结合下面参数使用
+- net.ipv4.tcp_keepalive_probes=9 ， 一共发送几个探测报文
+
+当启用（默认关闭）keepalive时，TCP在连接没有数据通过的7200秒后发送keepalive消息，当探测到对端没有响应后，按75秒的重试频率重发，一直发9个探测包都没有响应，它就会将连接断开。所以一共耗时为：2小时11分钟（7200秒 + 75 * 9）
+
+### *.4.2.应用层
+
+其实，虽然有了传输层的keepalive，大部分情况下应用层也会使用keepalive，这是因为：
+
+- 协议分层，各层关注点不同
+- TCP层的keepalive默认关闭，且经过路由等中转设备时keepalive包可能会被丢弃
+- TCP层的keepalive时间太长，默认 > 2小时，虽然可以改变，但是属于系统参数，会影响所有应用
+
+## *.5.高性能实现细节
+
+- 对锁的优化
+
+  - 注意锁的粒度和范围，以减少锁粒度，synchronized method 不如 synchronized block
+
+  - 注意锁本身的对象大小，以减少空间占用
+
+    ```java
+    // 例子：ChannelOutboundBuffe，用来统计待发送的字节数
+    // netty 使用 volatile long + AtomicIntegerFieldUpdater来替代AtomicLong
+    private volatile long totalPendingSize;
+    private static final AtomicIntegerFieldUpdater<ChannelOutboundBuffer>
+    	UNWRITABLE_UPDATER = AtomicIntegerFieldUpdater.newUpdater(
+        ChannelOutboundBuffer.class, "unwritable");
+    ```
+
+  - 注意锁的速度，提供并发性
+
+    ```java
+    // 例子：PlatformDependent#newLongCounter()方法，netty根据JDK版本选择性能更高的
+    // LongAdder来取代AtomicLong
+    public static LongCounter newLongCounter() {
+        if (javaVersion() >= 8) {
+            return new LongAdderCounter();
+        } else {
+            return new AtomicLongCounter();
+        }
+    }
+    ```
+
+  - 不同场景选择不同的并发包，求得最合适的数据结构
+
+    ```java
+    // 例子：PlatformDependent$Mpsc，
+    // MPMC：表示一个并发队列，有多生产者多消费者
+    // MPSC：表示一个并发队列，有多生产者但只有一个消费者
+    static <T> Queue<T> newMpscQueue(final int maxCapacity) {
+        final int capacity = max(min(maxCapacity, MAX_ALLOWED_MPSC_CAPACITY), MIN_MAX_MPSC_CAPACITY);
+        return USE_MPSC_CHUNKED_ARRAY_QUEUE ? new MpscChunkedArrayQueue<T>(MPSC_CHUNK_SIZE, capacity)
+            : new MpscChunkedAtomicArrayQueue<T>(MPSC_CHUNK_SIZE, capacity);
+    }
+    ```
+
+  - 衡量好，锁的价值，能不用锁就不用锁
+
+- 对内存的优化
+  - 减少对象本身的大小，能用基本类型就不要用包装类
+  - 对分配内存进行预估，比如可以固定Size以避免HashMap扩容
+  - 使用逻辑组合，代替实际复制
+  - 堆外内存
+  - 内存池

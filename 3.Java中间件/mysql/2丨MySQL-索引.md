@@ -29,7 +29,7 @@ B+树，相较于 B 树，B+树的数据只存储在叶子节点上，并且它�
   - 复合索引：一个索引包含多个列
   - 唯一索引：索引列的值必须唯一，允许有空值
 
-# 2.【InnoDB索引类型】
+# 2.【索引类型】
 
 在InnoDB中，表都是根据主键顺序以索引的形式存放的，这种存储方式的表称为索引组织表，每一个索引在InnoDB里面对应一棵B+树，所以数据都是存储在B+树中的。索引类型分为主键索引和非主键索引。
 
@@ -52,7 +52,7 @@ select * from user where name like '张%' and age=10 and ismale=1;
 
 由于我们创建了一个联合索引（name,age）而且where 的查询条件第一个就是 name，可以匹配到我们创建的索引；在MySQL 5.6之前，通过索引（name,age）匹配到`张`后找出行的主键 ID，然后开始一个个回表，到主键索引上找出数据行，再对比字段值`age`，过滤出等于 10 的行记录。而MySQL 5.6 引入的索引下推优化（index condition pushdown)， 可以在索引遍历过程中，对索引中包含的字段先做判断，直接过滤掉不满足条件的记录，减少回表次数。
 
-# 3.【性能分析】
+# 3.【执行计划】
 
 MySQL架构在第二层有一个Mysql Query Optimizer，是MySQL官方提供的查询优化器，它负责优化select语句，为客户端请求的SQL提供MySQL自己认为最优的执行计划；**通过explain关键字，可以模拟优化器执行SQL查询语句，分析查询语句或表结构的性能瓶颈**。它的语法很简单，直接在SQL前面加`explain`关键字即可
 
@@ -194,6 +194,88 @@ extra，包含不适合在列中显示但十分重要的额外信息。最重要
 - **using index**
 
   using index的出现，表示效率不错，是良好的表现。它表示相应的select操作中使用了覆盖索引，避免访问了表的数据行，若同时出现using where，表明索引被用来执行索引键值的查找；若没有同时出现using where，表明索引用来读取数据而非查找动作
+
+# 4.【排序原理】
+
+当SQL出现`order by`关键词，就会执行mysql的排序操作。但是，并不是只要出现`order by`就会让mysql执行排序，如果数据原本就是有序的，那么mysql只要按照`where`条件筛选出来，其返回值必定就是有序。
+
+若原本数据就是无序的，mysql必须执行排序操作，它会给客户端线程分配一块内存用于排序，这块内存称为`sort_buffer`。如果排序要用到的数据量（即`order by`后面跟着的字段）小于`sort_buffer`的大小（由参数`sort_buffer_size`决定），那么mysql就可以仅在内存中完成排序（默认使用快速排序）；但如果排序要用到的数据量过大，已经超过`sort_buffer`的大小，那么mysql就会使用磁盘临时文件辅助排序（这一操作就涉及写磁盘，性能差，反馈在`explain`就是出现`using filesort`字样），它会将需要排序的数据分成12份，每一份单独排序后存在这些临时文件中。然后把这12个有序文件再合并成一个有序的大文件 — 归并排序
+
+现在假设有一张表t：
+
+```sql
+CREATE TABLE `t` (
+  `id` int(11) NOT NULL,
+  `city` varchar(16) NOT NULL,
+  `name` varchar(16) NOT NULL,
+  `age` int(11) NOT NULL,
+  `addr` varchar(128) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `city` (`city`)
+) ENGINE=InnoDB;
+```
+
+执行如下的SQL，在设置不同的`sort_buffer_size`下，会让mysql选择不同排序算法：全字段排序和rowid排序
+
+```sql
+select city,name,age from t where city='杭州' order by name limit 1000;
+```
+
+## 4.1.全字段排序
+
+全字段排序，是mysql优先选择的排序算法。它对原表的数据只读了一遍，就可以将内存`sort_buffer`中的数据返回。它的执行步骤为：
+
+1. 初始化`sort_buffer`，确定放入name、city、age这三个字段；
+2. 从`city索引`找到第一个满足`city='杭州'`条件的主键ID；
+3. 到`主键索引`取出整行数据，取出name、city、age三个字段的值，存入sort_buffer；
+4. 从`city索引`取下一个记录的主键ID；
+5. 重复步骤`3、4`直到city的值不满足查询条件为止；
+6. 对`sort_buffer`中的数据按照字段name做快速排序；
+7. 根据排序结果取前1000行返回。
+
+![](./images/全字段排序.jpg)
+
+## 4.2.rowid排序
+
+如果mysql认为排序的单行长度太大（即超过`max_length_for_sort_data`大小）它就会选择使用rowid排序算法，但是这个算法相较于全字段排序会多读原表的数据一遍（也就是两遍）正是因为如此，在内存足够的情况下，mysql一般不会选择此算法。
+
+```sql
+-- max_length_for_sort_data是MySQL中专门控制用于排序的行数据的长度的一个参数; 如果单行的长度超过这个值，MySQL就认为单行太
+-- 大，而不会选择全字段排序
+SET max_length_for_sort_data = 16;
+```
+
+它的执行步骤为：
+
+1. 初始化`sort_buffer`，确定放入两个字段，即排序字段`name`和主键字段`id`；
+2. 从`city索引`找到第一个满足`city='杭州'`条件的主键ID；
+3. 到主键ID索引取出整行，取`name、id`两个字段，存入`sort_buffer`中；
+4. 从`city索引`取下一个记录的主键ID；
+5. 重复步骤3和4直到不满足`city='杭州'`条件为止；
+6. 对`sort_buffer`中的数据按照字段`name`进行排序；
+7. 遍历排序结果取前1000行，回表查询，取出`city、name、age`三个字段返回。
+
+![](./images/rowid排序.jpg)
+
+## 4.3.排序优化
+
+- 通过对两种排序算法的分析，如果原先待排序的字段就是有序的，那么mysql只负责做数据匹配即可，没无需再次排序。
+
+  ```sql
+  -- 所以，如果针对这种排序
+  select city,name,age from t where city='杭州' order by name limit 1000;
+  
+  -- 创建对city和name复合索引, 那么mysql就可以直接在索引列上筛选数据而不需要再做排序（因为索引数据本身就是有序的）
+  alter table t add index city_user(city, name);
+  ```
+
+- 上面的优化，只是减少了排序，但是mysql还是会回表查询原表的数据，所以如果使用覆盖索引，那么mysql直接在索引列上做数据筛选，就可以将索引的数据直接返回，大大减少排序和回表时间
+
+  ```sql
+  alter table t add index city_user_age(city, name, age);
+  ```
+
+- 上面的这两种情况，要把语句中涉及的字段都建上联合索引，毕竟索引还是有维护代价的，所以这是一个需要权衡的决定！！！
 
 # 11.【性能优化】
 

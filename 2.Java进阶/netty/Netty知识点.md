@@ -915,9 +915,9 @@ abstract class PoolArena<T> implements PoolArenaMetric {
 
 ![](./images/netty内存池的布局与管理.jpg)
 
-# *.Netty实战
+# 9.Netty实战
 
-## *.1.ChannelHandler不要执行耗时操作
+## 9.1.ChannelHandler不要执行耗时操作
 
 ChannelHandler的回调方法是由EventLoop唯一关联的线程Thread(即netty的I/O线程)调用的，因此若将长时间执行的耗时任务放到Handler回调方法中，它会阻塞该线程处理其它I/O事件，通常有两种实现方式：
 
@@ -933,34 +933,39 @@ ChannelHandler的回调方法是由EventLoop唯一关联的线程Thread(即netty
 ChannelPipeline addLast(EventExecutorGroup group, ChannelHandler... handlers);
 ```
 
-## *.2.两种写回数据的方式
+## 9.2.写数据
 
-在ChannelHander回调方法如channelRead0()，我们可以将数据写回到通道对端，可以直接由ChannelHandlerContext写回，也可以通过它获取到Channel写回，即：
+netty写数据到对端，有三种方式：
+
+- write：写到一个buffer里
+- flush：将buffer的数据发送出去
+- writeAndFlush：写到buffer中，并且立马发送。write和flush之间存在ChannelOutBoundBuffer
+
+将数据写回到通道对端，可以直接由ChannelHandlerContext写回，也可以通过它获取到Channel写回，即：
 
 ```java
 // 通过Channel写回数据
 ctx.channel().writeAndFlush();
+
 // 通过ChannelHandlerContext写回数据
 ctx.writeAndFlush();
 ```
 
 这两种方式是有区别的：
 
-1. Channel：数据从ChannelPipeline的ChannelHandler链表末尾开始传递直至底层Socket;
+1. Channel：数据从ChannelPipeline的TailContext链表末尾开始传递直至底层Socket；
 
-2. ChannelHandlerContext：数据从ChannelPipeline的ChannelHandler链表中的下一个ChannelHandler开始写回直至底层Socket.
-
-**结论：**
+2. ChannelHandlerContext：数据从ChannelPipeline的当前Context开始写入；
 
 对于与Channel的同名方法来说，ChannelHandlerContext的方法将会产生更短的事件流，所以可以在可能的情况下利用它提升应用性能；
 
-## *.3.TCP粘包/拆包
+## 9.3.TCP粘包/拆包
 
 拆包：一个完整的数据包可能会被TCP拆分为多个包进行发送；
 
 粘包：多个小的数据包可能被封装成一个大的包进行发送，有人称为半包；
 
-### *.3.1.产生原因
+### 9.3.1.产生原因
 
 在计算机科学中，bit是表示信息的最小单位，叫做二进制位，一般用0和1表示；而byte叫做字节，由8个位（8bit）组成。他们之间的区别如下：
 
@@ -990,7 +995,7 @@ ctx.writeAndFlush();
 
 注意：UDP就像邮寄的包裹，虽然一次运输多个，但每个包裹都有分界线，对端会一个一个签收，所以不会有粘包和拆包的问题
 
-### *.3.2.图解流程
+### 9.3.2.图解流程
 
 1. 一个正常的TCP报文传输是这样子，client将消息Msg1，Msg2依次发给server，而且server也是按照这样子的顺序接收到两个消息：
 
@@ -1006,7 +1011,7 @@ ctx.writeAndFlush();
 
 注：这上面所说的消息（即Msg1、Msg2）都是一串一串的字节流
 
-### *.3.3.解决方案
+### 9.3.3.解决方案
 
 这边记录下[网络博客](http://www.ideawu.net/blog/archives/993.html)介绍的一个伪代码实例：
 
@@ -1051,11 +1056,11 @@ while(1){
 | FixedLengthFrameDecoder    | 指定长度解决。指定消息头和消息体，消息头的值就是消息体的数据大小 |
 | 无组件                     | 自定义协议，即规定消息如何划分个体，例如dubbo，自定义数据传输协议，然后client和server按照这个协议将字节流转换成消息。 |
 
-## *.4.keepalive和idle
+## 9.4.keepalive和idle
 
 idle检测，只是负责诊断，诊断后作出不同的行为，一般用来配合keepalive，减少keepalive消息。有数据传输时，不会发送keepalive消息；无数据传输超过一定时间，判定为idle，再发keepalive消息
 
-### *.4.1.传输层
+### 9.4.1.传输层
 
 keeplive是保证TCP通信双方不会因为某一方未响应的原因而久久等待，但是这种情况出现的概率小，所以没有必要做频繁的检测（浪费网络带宽）。TCO keeplive核心参数如下：
 
@@ -1065,7 +1070,7 @@ keeplive是保证TCP通信双方不会因为某一方未响应的原因而久久
 
 当启用（默认关闭）keepalive时，TCP在连接没有数据通过的7200秒后发送keepalive消息，当探测到对端没有响应后，按75秒的重试频率重发，一直发9个探测包都没有响应，它就会将连接断开。所以一共耗时为：2小时11分钟（7200秒 + 75 * 9）
 
-### *.4.2.应用层
+### 9.4.2.应用层
 
 其实，虽然有了传输层的keepalive，大部分情况下应用层也会使用keepalive，这是因为：
 
@@ -1073,7 +1078,7 @@ keeplive是保证TCP通信双方不会因为某一方未响应的原因而久久
 - TCP层的keepalive默认关闭，且经过路由等中转设备时keepalive包可能会被丢弃
 - TCP层的keepalive时间太长，默认 > 2小时，虽然可以改变，但是属于系统参数，会影响所有应用
 
-## *.5.高性能实现细节
+## 9.5.高性能实现细节
 
 - 对锁的优化
 

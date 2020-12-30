@@ -307,9 +307,114 @@ select word from t order by rand() limit 3;
 
 - 上面的这两种情况，要把语句中涉及的字段都建上联合索引，毕竟索引还是有维护代价的，所以这是一个需要权衡的决定！！！
 
-# 11.【性能优化】
+# 5.【连表查询原理】
 
-## *.1.何时需要索引？
+mysql连表查询（即join）是怎么实现的？实际上，就跟我们单表查询SQL，得到结果后遍历，按照匹配条件去查另一张表，原理就是这样子！！通过创建实际的表和执行sql来记录mysql使用的join连表算法。其中，如果单单使用join，mysql会对其做优化，所以可以使用关键字`straight_join`，这样mysql就会按照SQL指定的顺序去join连表查询。
+
+```sql
+-- 对字段a做索引，字段b不做索引
+CREATE TABLE `t2` (
+  `id` int(11) NOT NULL,
+  `a` int(11) DEFAULT NULL,
+  `b` int(11) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `a` (`a`)
+) ENGINE=InnoDB;
+```
+
+往表t2插入1000条数据：
+
+```sql
+create procedure idata()
+begin
+  declare i int;
+  set i=1;
+  while(i<=1000)do
+    insert into t2 values(i, i, i);
+    set i=i+1;
+  end while;
+end;;
+delimiter ;
+call idata();
+```
+
+再创建表t1，插入100条数据
+
+```sql
+create table t1 like t2;
+insert into t1 (select * from t2 where id<=100)
+```
+
+## 5.1.Index Nested-Loop Join
+
+这个算法的执行过程就跟写程序时的嵌套查询类似，并且可以用上被驱动表的索引，所以被称之为“Index Nested-Loop Join”，简称NLJ。
+
+```sql
+-- 依靠上面的数据，执行如下的SQL：
+select * from t1 straight_join t2 on (t1.a=t2.a);
+```
+
+在这条SQL中，驱动表是t1，被驱动表是t2，并且使用字段a来作关联（字段a是存在索引的）。它的执行流程为：
+
+1. 对表t1进行全表扫描；
+2. 取出表t1的一行数据R；
+3. 从数据行R中, 取出字段a的值，到表t2里去查找
+4. 取出表t2中满足条件的行，跟R组成一行，作为结果集的一部分；
+5. 重复执行步骤2~4，直到表t1的末尾循环结束
+
+![](./images/Index Nested-Loop Join算法的执行流程.jpg)
+
+在这个join语句执行过程中，驱动表是走全表扫描，而被驱动表是走树搜索。假设被驱动表的行数是M，每次在被驱动表查一行数据，要先搜索索引a，再搜索主键索引。每次搜索一棵树近似复杂度是以2为底的M的对数，记为log2M，所以在被驱动表上查一行的时间复杂度是 2\*log2M。假设驱动表的行数是N，执行过程就要扫描驱动表N行，然后对于每一行，到被驱动表上匹配一次。因此整个执行过程，近似复杂度是 N + N*2*log2M。对于这个式子，很明显，N的影响更大，而N对应的是驱动表，也就是说要让小表来做驱动表
+
+如果**被驱动表存在索引**，那么mysql就会选择这种算法来执行join查询。这种情况下，比强行拆成单表，在嵌套查询关联表的SQL语句性能要好（因为扫描数都一样，但是强行拆成单表的方式会多执行N条SQL语句）
+
+## 5.2.Simple Nested-Loop Join
+
+如果被驱动表没办法使用索引，就会变成这种Join方式（不过要注意，mysql并没有采用这个join算法，它采用的是下面的BNJ算法，这个算法只是拿来学习使用）
+
+```sql
+-- 还是依靠上面创建好的数据，这次驱动表还是t1, 被驱动表还是t2, 但是是用t1.a来关联t2.b, t2的字段b是没有创建索引的
+select * from t1 straight_join t2 on (t1.a=t2.b);
+```
+
+这种算法的执行流程，其实跟[NLJ算法](# 5.1.Index Nested-Loop Join)流程一样，只不过现在被驱动表t2的字段b没有索引，所以没办法从索引树来匹配记录，而只能全表扫描表t2。
+
+## 5.3.Block Nested-Loop Join
+
+如果被驱动表没办法使用索引，mysql会采取Block Nested-Loop Join算法，简称”BNL“，假设还是执行这样一句SQL：
+
+```sql
+select * from t1 straight_join t2 on (t1.a=t2.b);
+```
+
+它的一个执行流程为：
+
+1. 把表t1的数据按照SQL语句的条件，读入到线程内存`join_buffer`中，当然在这个语句中写的是select *，并且没有任何where条件，所以会把整个t1放入内存
+2. 全表扫描t2，把t2中的每一行取出来，跟`join_buffer`中的数据做匹配，如果满足join条件，将其作为结果集的一部分返回
+
+![](./images/Block Nested-Loop Join 算法的执行流程.jpg)
+
+在这个过程中，对表t1和t2都做了一次全表扫描，因此总的扫描行数是1100。由于join_buffer是以无序数组的方式组织的，因此对表t2中的每一行，都要做100次判断，总共需要在内存中做的判断次数是：100*1000=10万次。其实与Simple Nested-Loop Join算法做的判断数是一样的，但是，Block Nested-Loop Join算法的这10万次判断是内存操作，速度上会快很多，性能也更好。
+
+如果采用的是这种join算法，其实谁做驱动表做没差，因为：两个表都做一次全表扫描，所以总的扫描行数是M+N；然后在内存中的判断次数是M*N。但是呢，有另外一个，那就是如果`join_buffer`放不驱动表的数据就比较尴尬了。join_buffer的大小是由参数join_buffer_size设定的，默认值是256k。**如果放不下表t1的所有数据话，策略很简单，就是分段放(分治算法思想)**，执行流程就会变为：
+
+1. 扫描表t1，顺序读取数据行放入join_buffer中，假设放到88行的时候，join_buffer满了，那就执行第二步；
+2. 扫描表t2，把t2中的每一行取出来，跟join_buffer中的数据做对比，满足join条件的，作为结果集的一部分返回；
+3. 清空join_buffer；
+4. 继续扫描表t1，顺序读取最后的12行数据放入join_buffer中，继续执行第2步。
+
+![](./images/Block Nested-Loop Join -- 两段.jpg)
+
+## 5.4.要不要join语句？
+
+1. 如果可以使用Index Nested-Loop Join算法，也就是说可以用上被驱动表上的索引，其实是没问题的；
+2. 如果使用Block Nested-Loop Join算法，扫描行数就会过多。尤其是在大表上的join操作，这样可能要扫描被驱动表很多次，会占用大量的系统资源。所以这种join尽量不要用（在判断要不要使用join语句时，就是看explain结果里面，Extra字段里面有没有出现“Block Nested Loop”字样）
+
+3. 如果要使用join，总是应该使用小表做驱动表。那么何为小表？**在决定哪个表做驱动表的时候，应该是两个表按照各自的条件过滤，过滤完成之后，计算参与join的各个字段的总数据量，数据量小的那个表，就是“小表”，应该作为驱动表。**
+
+# 6.【性能优化】
+
+## 6.1.何时需要索引？
 
 - 需要索引的情况
 
@@ -329,9 +434,9 @@ select word from t order by rand() limit 3;
   - 表记录太小，Mysql据说可以撑到300W条
   - 某个数据列包含许多重复的内容，例如性别，都是男或者女，没必要建索引
 
-## *.2.索引优化
+## 6.2.索引优化
 
-### *.2.1.最佳左前缀法则
+### 6.2.1.最佳左前缀法则
 
 最佳左前缀法则：**如果索引了多列，查询条件要从索引的最左前列开始并且不跳过中间的列**。现在有一个学生表，该表的索引如下：
 
@@ -353,7 +458,7 @@ select word from t order by rand() limit 3;
 
 ![](./images/索引优化-最佳左前缀法则_5.png)
 
-### *.2.2.索引列不加操作
+### 6.2.2.索引列不加操作
 
 不要在索引列上做任何操作（计算、函数、类型转换等），会导致索引失效。left(v,n)函数是Mysql自带的函数，意思是在指定的列v上，从左往右数起到n得到的值与给定的值相匹配的数据，可以看到查询的结果与...where name='张三'的结果是一样的
 
@@ -363,7 +468,7 @@ select word from t order by rand() limit 3;
 
 ![](./images/索引优化-索引列不加操作_2.png)
 
-### *.2.3.范围条件后索引列失效
+### 6.2.3.范围条件后索引列失效
 
 在where条件后，如果某列用了范围条件（如in，between，>，<等）则此列以后的索引列都会失效，mysql并不会再用索引去查询：
 
@@ -375,13 +480,13 @@ select word from t order by rand() limit 3;
 
 ![](./images/索引优化-范围条件后索引列失效_2.png)
 
-### *.2.4.尽量避免select\*查询
+### 6.2.4.尽量避免select\*查询
 
 尽量使用覆盖索引（查询列和索引列一样），减少select * 操作。我们把select *改成select name age后，对比一下，发现Extra列多了一个Using index，当出现using index表示系统性能更好，所以，当我们在查询的时候尽可能地保证查询的列能和索引列一样，这样Mysql直接从索引上取值，极大地加大性能：
 
 ![](./images/索引优化-避免select全查询.png)
 
-### *.2.5.!=，<>会使索引失效
+### 6.2.5.不等表达式!=、<>会使索引失效
 
 mysql在使用不等于（!=或者<>）的时候，无法使用索引导致全表扫描。备注：在mysql中，<>相当于!=，即不等于的意思；<=>相当于=，即等于的意思
 
@@ -391,13 +496,13 @@ mysql在使用不等于（!=或者<>）的时候，无法使用索引导致全�
 
 ![](./images/索引优化-不等符号使索引失效_2.png)
 
-### *.2.6.is null或is not null索引失效
+### 6.2.6.条件is null、is not null索引失效
 
 当查询条件是..is null或者.. is not null的时候，由下图可以看出出现两种情况：一种是极端type=null，一种是全表扫描type=all，尽量避免使用！
 
 ![](./images/索引优化-is null或 is not null使索引失效.png)
 
-### *.2.7.模糊查询like
+### 6.2.7.模糊查询like
 
 like以通配符开头（'%xxx...'）mysql索引失效会变成全表扫描的操作。即：'%java'、'%java%'都会失效，但是'java%'就不会失效：
 
@@ -409,19 +514,19 @@ like以通配符开头（'%xxx...'）mysql索引失效会变成全表扫描的�
 
 表中建立索引用的列是name、age、sex，还有主键列：id。可以发现，在select查询的列是这四列的任意组合时，type=index，虽不说很高效，但至少比全表扫描ALL好很多，一旦select查询的列是非索引列(如多了addr)可以看到，查询结果type=ALL，继续变成全表扫描。结论：**使用模糊查询like，尽量保证查询列与索引列一致，即覆盖索引**
 
-### *.2.8.字符串不加引号使索引失效
+### 6.2.8.字符串不加引号使索引失效
 
 当一个varchar类型的数据，查询时不使用引号，会发生隐式类型转换，导致索引失效，进而变成全表扫描，其实就是避免在索引列上加操作
 
 ![](./images/索引优化-字符串不加引号索引失效.png)
 
-### *.2.9.尽量避免or条件查询
+### 6.2.9.尽量避免or条件查询
 
 加了or条件的查询，会让索引失效，变成全表扫描
 
 ![](./images/索引优化-避免or查询.png)
 
-## *.3.小表驱动大表
+## 6.3.小表驱动大表
 
 优化原则：**永远保持小的数据集驱动大的数据集！**比如`in`和`exist`：
 
@@ -434,7 +539,7 @@ select * from A where id in(select id from B)
 select * from A where exists(select 1 from B where B.id=A.id)
 ```
 
-## *.4.order by
+## 6.4.order by
 
 MySQL支持2种方式的排序：文件排序`using filesort`和索引排序`using index`，出现`filesort`表示系统性能出现问题，所以要让MySQL使用index索引排序，需要满足下面情况的任意一种：
 
@@ -444,7 +549,7 @@ MySQL支持2种方式的排序：文件排序`using filesort`和索引排序`usi
 
 - 排序列要么同升序要么同降序
 
-## *.5.group by
+## 6.5.group by
 
 group by与order by大致一样，以下三种情况是group by独有的：
 

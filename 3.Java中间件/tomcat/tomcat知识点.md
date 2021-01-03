@@ -100,13 +100,13 @@ tomcat源码目录，org.apache.*
 
 上面配置的每一个标签，Tomcat都有一个对应的接口。所以，需要理清楚Tomcat组件基本概念：
 
-- Server：Tomcat实例，下载Tomcat压缩包，执行/bin/startup.sh，就可以启动Tomcat实例；
-- Service：一个对外服务的整体，它包括多个Connector和一个Engine。同时，一个Server可以配置多个Service。实际上Service只是将组件组合到一起，本身并没有实现什么功能；
-- Connector：连接器，启动ServerSocket，负责监听Socket请求，将数据转换成Tomcat Request，交给Engine处理。一个Service可以有多个Connector，表示它可以监听多个端口；
-- Engine：Servlet容器，它是Tomcat容器的最顶层组件，它会管理多个虚拟主机Host。一个Service只能有一个Engine，一个Engine可以配置多个Host；
-- Host：虚拟主机，默认为localhost，也就是127.0.0.1。也可以配置不同的IP地址，访问不同的IP地址就可以访问到不同的虚拟主机。一个Host可以部署多个Context；
-- Context：应用程序，一般会把我们实现的Servlet应用打包成war，放到Tomcat的webapps目录下，Tomcat会将其解压并部署映射成一个Context组件，表示一个应用上下文。一个Context可以管理多个Wrapper，毕竟一个web应用肯定有多个Servlet；
-- Wrapper：这个组件Tomcat配置文件并没有，因为它是在web.xml配置，它就是Servlet。确切地说，是Tomcat用Wrapper包裹了我们自己实现的Servlet。一个请求最终就会到Wrapper来执行
+- **Server**：Tomcat实例，下载Tomcat压缩包，执行/bin/startup.sh，就可以启动Tomcat实例；
+- **Service**：一个对外服务的整体，它包括多个Connector和一个Engine。同时，一个Server可以配置多个Service。实际上Service只是将组件组合到一起，本身并没有实现什么功能；
+- **Connector**：连接器，启动ServerSocket，负责监听Socket请求，将数据转换成Tomcat Request，交给Engine处理。一个Service可以有多个Connector，表示它可以监听多个端口；
+- **Engine**：Servlet容器，它是Tomcat容器的最顶层组件，它会管理多个虚拟主机Host。一个Service只能有一个Engine，一个Engine可以配置多个Host；
+- **Host**：虚拟主机，默认为localhost，也就是127.0.0.1。也可以配置不同的IP地址，访问不同的IP地址就可以访问到不同的虚拟主机。一个Host可以部署多个Context；
+- **Context**：应用程序，一般会把我们实现的Servlet应用打包成war，放到Tomcat的webapps目录下，Tomcat会将其解压并部署映射成一个Context组件，表示一个应用上下文。一个Context可以管理多个Wrapper，毕竟一个web应用肯定有多个Servlet；
+- **Wrapper**：这个组件Tomcat配置文件并没有，因为它是在web.xml配置，它就是Servlet。确切地说，是Tomcat用Wrapper包裹了我们自己实现的Servlet。一个请求最终就会到Wrapper来执行
 
 ![](./images/Tomcat整体架构.png)
 
@@ -864,7 +864,7 @@ Tomcat 是通过设计多层次的类加载器来实现Web引用相互隔离的�
 
   SharedClassLoader作为WebAppClassLoader的父类加载器，专门来加载 Web 应用之间共享的类。如果 WebAppClassLoader 没有加载到某个类，就会委托父加载器 SharedClassLoader 去加载这个类，SharedClassLoader 会在指定目录下加载共享类，之后返回给 WebAppClassLoader，解决第三方jar共享的问题
 
-- CatalinaClassLoader
+- **CatalinaClassLoader**
 
   CatalinaClassLoader专门来加载 Tomcat 自身的类，用于隔离 Tomcat 本身的类和 Web 应用的类
 
@@ -961,15 +961,13 @@ protected void processSocketEvent(SocketEvent event, boolean dispatch) {
 }
 ```
 
-
-
-
-
-
-
 # 6.会话管理
 
+
+
 # 7.集群管理
+
+
 
 # 8.性能优化
 

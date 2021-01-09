@@ -1,12 +1,10 @@
 # 1.Tomcat简介
 
-Tomcat是由Apache软件基金会属下Jakarta项目开发的Servlet容器，按照Sun Microsystems提供的技术规范，实现了对Servlet和JavaServer Page（JSP）的支持，并提供了作为Web服务器的一些特有功能，如Tomcat管理和控制平台、安全局管理和Tomcat阀等。由于Tomcat本身也内含了HTTP服务器，因此也可以视作单独的Web服务器。但是，不能将Tomcat和Apache HTTP服务器混淆，Apache HTTP服务器是用C语言实现的HTTPWeb服务器；这两个HTTP web server不是捆绑在一起的。Apache Tomcat包含了配置管理工具，也可以通过编辑XML格式的配置文件来进行配置。—— 以上来自[维基百科](https://zh.wikipedia.org/wiki/Apache_Tomcat)
-
-简单地说：Tomcat就是HTTP服务器 + Servlet服务器，属于轻量级web容器！！！
+Tomcat是由Apache软件基金会属下Jakarta项目开发的Servlet容器，按照Sun Microsystems提供的技术规范，实现了对Servlet和JavaServer Page（JSP）的支持，并提供了作为Web服务器的一些特有功能，如Tomcat管理和控制平台、安全局管理和Tomcat阀等。由于Tomcat本身也内含了HTTP服务器，因此也可以视作单独的Web服务器。但是，不能将Tomcat和Apache HTTP服务器混淆，Apache HTTP服务器是用C语言实现的HTTPWeb服务器；这两个HTTP web server不是捆绑在一起的。Apache Tomcat包含了配置管理工具，也可以通过编辑XML格式的配置文件来进行配置。—— [维基百科](https://zh.wikipedia.org/wiki/Apache_Tomcat)。简单地说：Tomcat就是HTTP服务器 + Servlet服务器，属于轻量级web容器！！！
 
 ## 1.1.Servlet规范
 
-Java官方的Servlet规范地址：[https://jcp.org/en/jsr/detail?id=369](https://jcp.org/en/jsr/detail?id=369)，目前最新是**Servlet 4.0 Specification**，即4.0规范支持HTTP2.0！`javax.servlet.Servlet`，是一个标准化接口，可以理解为运行在服务端的java小程序。服务器接收到请求后，确定并寻找合适的Servlet响应请求。为了让服务器与业务逻辑解耦，又定义了`Servlet Container`，即Servlet容器，由容器来创建和管理Servlet。Servlet接口和Servlet容器这一整套规范叫做Servlet规范！！！
+Java官方的Servlet规范地址：[https://jcp.org/en/jsr/detail?id=369](https://jcp.org/en/jsr/detail?id=369)，目前最新是Servlet 4.0 Specification，即4.0规范支持HTTP2.0！`javax.servlet.Servlet`，是一个标准化接口，可以理解为运行在服务端的java小程序。服务器接收到请求后，确定并寻找合适的Servlet响应请求。为了让服务器与业务逻辑解耦，又定义了`Servlet Container`，即Servlet容器，由容器来创建和管理Servlet。Servlet接口和Servlet容器这一整套规范叫做Servlet规范！！！
 
 ```java
 // Servlet接口源码
@@ -39,11 +37,11 @@ Catalina是Tomcat的核心模块，其他模块都是为 Catalina 提供下沉�
 
 **tomcat日志**
 
-- catalina.*.log：记录 Tomcat 启动过程的信息，这个文件可以看到启动的 JVM 参数以及操作系统等日志信息
-- catalina.out：Tomcat 的标准输出（stdout）和标准错误（stderr），这是在 Tomcat 的启动脚本里指定的，如果没有修改的话 stdout 和 stderr 会重定向到这里，所以在这个文件里可以看到我们程序打印出来的信息
-- localhost.*.log：记录 Web 应用在初始化过程中遇到的未处理异常，会被 Tomcat 捕获而输出这个日志文件
-- localhost_access_log.*.txt：存放访问 Tomcat 的请求日志，包括 IP 地址以及请求的路径、时间、请求协议以及状态码等信息。
-- manager.\*\*.log/host-manager.*.log： Tomcat 自带的 manager 项目的日志信息
+- `catalina.*.log`：记录 Tomcat 启动过程的信息，这个文件可以看到启动的 JVM 参数以及操作系统等日志信息
+- `catalina.out`：Tomcat 的标准输出（stdout）和标准错误（stderr），这是在 Tomcat 的启动脚本里指定的，如果没有修改的话 stdout 和 stderr 会重定向到这里，所以在这个文件里可以看到我们程序打印出来的信息
+- `localhost.*.log`：记录 Web 应用在初始化过程中遇到的未处理异常，会被 Tomcat 捕获而输出这个日志文件
+- `localhost_access_log.*.txt`：存放访问 Tomcat 的请求日志，包括 IP 地址以及请求的路径、时间、请求协议以及状态码等信息。
+- `manager.*.log/host-manager.*.log`： Tomcat 自带的 manager 项目的日志信息
 
 ## 1.3.工作流程
 
@@ -61,13 +59,13 @@ Tomcat分为两大部分：HTTP服务器 + Servlet容器，HTTP服务器负责�
 
 tomcat源码目录，org.apache.*
 
-- catalina：tomcat的Servlet容器实现，负责处理客户端的请求并响应，里面有tomcat的核心组件：Server、Service、Connector、Container、Engine、Host、Context、Wrapper、Executor等，同时tomcat也是通过它启动的；
-- coyote：Tomcat连接器框架的名称，是Tomcat服务器提供的供客户端访问的外部接口，客户端通过Coyote 与Catalina容器进行通信。 里面定义tomcat支持的上层协议，还有Request, Response 就是来自于Coyote模块；
-- el：Expression Language，即EL表达式，java表达式语言，就是在JSP中用于获取值的语法；
-- jasper：jsp引擎，可以在jsp中引入各种标签，在不重启服务器的情况下，检测jsp页面是否有更新...等等
-- juli：日志相关
-- naming：命名空间，即`JNDI`用于java目录服务的API，JAVA应用可以通过JNDI API 按照命名查找数据和对象，常用的有: 1.将应用连接到一个外部服务，如数据库.；2. Servlet通过JNDI查找 WEB容器提供的配置信息
-- tomcat：工具类+附加功能，如websocket等
+- `catalina`：tomcat的Servlet容器实现，负责处理客户端的请求并响应，里面有tomcat的核心组件：Server、Service、Connector、Container、Engine、Host、Context、Wrapper、Executor等，同时tomcat也是通过它启动的；
+- `coyote`：Tomcat连接器框架的名称，是Tomcat服务器提供的供客户端访问的外部接口，客户端通过Coyote 与Catalina容器进行通信。 里面定义tomcat支持的上层协议，还有Request, Response 就是来自于Coyote模块；
+- `el`：Expression Language，即EL表达式，java表达式语言，就是在JSP中用于获取值的语法；
+- `jasper`：jsp引擎，可以在jsp中引入各种标签，在不重启服务器的情况下，检测jsp页面是否有更新...等等
+- `juli`：日志相关
+- `naming`：命名空间，即`JNDI`用于java目录服务的API，JAVA应用可以通过JNDI API 按照命名查找数据和对象，常用的有: 1.将应用连接到一个外部服务，如数据库.；2. Servlet通过JNDI查找 WEB容器提供的配置信息
+- `tomcat`：工具类+附加功能，如websocket等
 
 # 2.Tomcat架构
 
@@ -108,9 +106,9 @@ tomcat源码目录，org.apache.*
 - **Context**：应用程序，一般会把我们实现的Servlet应用打包成war，放到Tomcat的webapps目录下，Tomcat会将其解压并部署映射成一个Context组件，表示一个应用上下文。一个Context可以管理多个Wrapper，毕竟一个web应用肯定有多个Servlet；
 - **Wrapper**：这个组件Tomcat配置文件并没有，因为它是在web.xml配置，它就是Servlet。确切地说，是Tomcat用Wrapper包裹了我们自己实现的Servlet。一个请求最终就会到Wrapper来执行
 
-![](./images/Tomcat整体架构.png)
+下图就是Tomcat整体架构的各个组件，后面来一个一个拆解分析！！！
 
-上图就是Tomcat整体架构的各个组件，后面来一个一个拆解分析！！！
+![](./images/Tomcat整体架构.png)
 
 ## 2.1.连接器-Connector
 
@@ -269,7 +267,7 @@ Wrapper 容器的最后一个 Valve 会创建一个 Filter 链，并调用 doFil
 
 # 3.生命周期管理
 
-Tomcat设计众多组件来保证高内聚低耦合，保证可扩展性。但是，组件数量多也会带来其它问题，比如组件的管理，在启动、关闭和销毁需要涉及多个组件的操作。Tomcat为了设计了LifeCycle接口，它定义生命周期钩子函数：init()、start()、stop() 和 destroy()，组件都实现这个接口，定义自己的处理逻辑。并且，上层组件在触发自己生命周期钩子函数的同时，会触发它管理的下层组件的钩子函数。其实老外设计框架很喜欢设计这个LifeCycle接口，新版Apache Dubbo也加入了这一特性。下图是Tomcat生命周期管理总体类图：
+Tomcat设计众多组件来保证高内聚低耦合，保证可扩展性。但是，组件数量多也会带来其它问题，比如组件的管理，在启动、关闭和销毁需要涉及多个组件的操作。Tomcat设计了LifeCycle接口，它定义生命周期钩子函数：init()、start()、stop() 和 destroy()，组件都实现这个接口，定义自己的处理逻辑。并且，上层组件在触发自己生命周期钩子函数的同时，会触发它管理的下层组件的钩子函数。其实老外设计框架很喜欢设计这个LifeCycle接口，新版Apache Dubbo也加入了这一特性。下图是Tomcat生命周期管理总体类图：
 
 ![](./images/Tomcat生周期管理总体类图.png)
 
@@ -862,7 +860,7 @@ Tomcat 是通过设计多层次的类加载器来实现Web引用相互隔离的�
 
 - **SharedClassLoader**
 
-  SharedClassLoader作为WebAppClassLoader的父类加载器，专门来加载 Web 应用之间共享的类。如果 WebAppClassLoader 没有加载到某个类，就会委托父加载器 SharedClassLoader 去加载这个类，SharedClassLoader 会在指定目录下加载共享类，之后返回给 WebAppClassLoader，解决第三方jar共享的问题
+  SharedClassLoader作为WebAppClassLoader的父类加载器，专门来加载 Web 应用之间共享的类。如果 WebAppClassLoader 没有加载到某个类，就会委托父加载器 SharedClassLoader 去加载这个类，SharedClassLoader 会在**指定目录**下加载共享类，之后返回给 WebAppClassLoader，解决第三方jar共享的问题
 
 - **CatalinaClassLoader**
 

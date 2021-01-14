@@ -220,7 +220,16 @@ write和fsync的时机，是由参数sync_binlog控制的：
 
 在记录[一致性实现](# 2.1.一致性实现)时，mysql是通过redo log先prepare，再写binlog，最后redo log commit来保证数据一致性的。所以如果`innodb_flush_log_at_trx_commit`设置为1，那么redo log在prepare阶段就会先持久化到磁盘一次。通过开启后台线程轮询刷盘，加上crash-safe保障，InnoDB就可以保证数据不会丢失（即使宕机也可以恢复），所以在redo log commit的时候，它就不需要fsync，只要write到文件系统的page cache即可。常说MySQL双1配置，就是指`sync_binlog`和`innodb_flush_log_at_trx_commit`都设置成1，执行流程上就是：一个事务完整提交前，需要等待两次刷盘（持久化到磁盘），一次是redo log（prepare阶段），一次就是binlog。
 
-这样看来，每次mysql提交事务的时候，都会涉及到两次写入磁盘的操作，相当于如果mysql的TPS是每秒20000，那么每秒就会写40000次磁盘，听起来好像很慢的样子？实际上，mysql采用了组提交机制（即group commit，说白了就是批量提交刷盘），在并发更新场景下，第一个事务写完redo buffer以后，接下来fsync越晚调用，其它事务就越有机会参与到第一个事务的组提交，当数据足够多时，第一个事务执行fsync操作，一次性将redo log都持久化到磁盘上。总结出mysql的WAL（write ahead logging）机制得益于两个方面：
+![](./images/两阶段提交细化过程.png)
+
+​											（只要能够到达redo log prepare阶段，就表示事务已经通过锁冲突的检验）
+
+每次mysql提交事务的时候，都会涉及到两次写入磁盘的操作，相当于如果mysql的TPS是每秒20000，那么每秒就会写40000次磁盘。实际上，mysql采用了组提交机制（即group commit，说白了就是批量提交刷盘），在并发更新场景下，第一个事务写完redo buffer以后，接下来fsync越晚调用，其它事务就越有机会参与到第一个事务的组提交，当数据足够多时，第一个事务执行fsync操作，一次性将redo log都持久化到磁盘上。mysql提供两个参数来处理组提交：
+
+1. binlog_group_commit_sync_delay：表示延迟多少微秒后才调用fsync；
+2. binlog_group_commit_sync_no_delay_count：表示累积多少次以后才调用fsync；
+
+总结出mysql的WAL（write ahead logging）机制得益于两个方面：
 
 - redo log和binlog都是顺序写，磁盘顺序写比随机写的速度要快得多
 - 组提交机制，大幅度降低磁盘的IOPS消耗
@@ -525,3 +534,76 @@ select * from t where id>9 and id<12 order by id desc for update;
 2. 然后引擎向左继续遍历，一直遇到（5,5,5）这一行，引擎才可以确定继续左边遍历已经没有意义了，所以会为（5,5,5）加上next-key lock
 3. 最终加锁范围就是，主键索引上的(0, 5]、(5, 10]、(10, 15)
 
+# 4.【批量insert加锁】
+
+由于有redo log和binlog的存在，mysql执行一条insert语句速度很快，直接刷新进去内存数据页即可，所以也就没有加锁的概念（可能申请自增主键的时候需要加自增锁）说这么多，就是为了表达，普通insert语句是一个很轻量级的操作！假设创建两张表：
+
+```sql
+-- 创建表t
+CREATE TABLE `t` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `c` int(11) DEFAULT NULL,
+  `d` int(11) DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `c` (`c`)
+) ENGINE=InnoDB;
+
+-- 插入表t, 4条数据
+insert into t values(null, 1,1);
+insert into t values(null, 2,2);
+insert into t values(null, 3,3);
+insert into t values(null, 4,4);
+
+-- 创建表t2, 跟表t结构一样
+create table t2 like t
+```
+
+## 4.1.insert...select
+
+在可重复读隔离级别，binlog_format=statement时执行下面这条SQL语句，需要对表t的所有行和间隙加锁：
+
+```sql
+insert into t2(c,d) select c,d from t;
+```
+
+mysql为啥会选择这样加锁？原因其实就是binlog_format=statement，因为它记录的SQL本身。在不加锁的情况下，如果sessionB在主库先执行了，但是binlog却比sessionA晚写入
+
+| sessionA                       | sessionB                              |
+| ------------------------------ | ------------------------------------- |
+| insert into t values(5, 5, 5); | insert into t2(c,d) select c,d from t |
+
+那么就会出现这样的binlog语句序列，这个binlog交给从库执行时，就会出现主库的t2并没有（5,5,5）这一行，而从库t2存在这一行，就会发生数据不一致的现象。
+
+```sql
+insert into t values(5,5,5);
+insert into t2(c,d) select c,d from t;
+```
+
+因此在可重复读隔离级别，binlog_format=statement前提下，执行insert...select语句，mysql会为select语句后面的表加锁。但是要注意，对目标表并不永远都是锁全表，mysql只是锁住需要访问的资源：
+
+```sql
+-- 这条语句的加锁范围：表t索引c上的(3,4]和(4,supremum]这两个next-key lock，以及主键索引上id=4这一行
+insert into t2(c,d)  (select c+1, d from t force index(c) order by c desc limit 1);
+```
+
+## 4.2.insert唯一键冲突
+
+![](./images/唯一键冲突加锁.png)
+
+在可重复读隔离级别下，session A执行的insert语句，发生唯一键冲突的时候，并不只是简单地报错返回，还会在冲突的索引上加了锁。这时候，session A持有索引c上的(5,10]共享的next-key lock（读锁），所以这时候session B插入数据的时候就会阻塞住了。因此，**碰到由于唯一键约束导致报错后，要尽快提交或回滚事务，避免加锁时间过长**。
+
+在下面这个例子，唯一键冲突还会造成死锁：
+
+![](./images/唯一键冲突死锁.png)
+
+死锁的逻辑为：
+
+1. 在T1时刻，session A执行insert语句，此时会在索引c=5上加记录锁；
+2. 在T2时刻上，session B要执行相同的insert语句，发现了唯一键冲突，加上读锁；同样地，session C也在索引c上加了读锁；
+3. T3时刻，session A回滚。此时，session B和session C都试图继续执行插入操作，都要加上写锁。因此，两个session都需要等待对方的读锁，就出现了死锁
+
+## 4.3.insert...on duplicate key
+
+insert into … on duplicate key update 这个语义的逻辑是，插入一行数据，如果碰到唯一键约束，就执行后面的更新语句。如果有多个列违反了唯一性约束，就会按照索引的顺序，修改跟第一个索引冲突的行。
+
+不过有一点需要注意，在执行成功后，这条语句的affected rows返回的是2，很容易造成误解。实际上，真正更新的只有一行，只是在代码实现上，insert和update都认为自己成功了，update计数加了1， insert计数也加了1。

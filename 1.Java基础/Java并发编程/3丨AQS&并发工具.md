@@ -1,4 +1,4 @@
-# 1.同步队列器AQS
+# 1.【同步队列器AQS】
 
 AQS，即AbstractQueuedSynchronizer，被称为队列同步器，它通过定义一个int成员变量表示同步状态，通过内置的FIFO队列来完成线程的排队工作（即锁）如果说CAS算法是java并发包的思想，那么AQS就是基于CAS算法的锁的实现。它完美地运用了模板模式，让子类自定义实现如下方法，其余操作它都实现了！
 
@@ -10,9 +10,9 @@ AQS定义了2个内部静态类，一个是Node类，另一个是ConditionObject
 
 ### 1.1.1.Node
 
-​	Node类是AbstractQueuedSynchronizer的一个内部静态类（不可继承），它是构成CLH队列的基础元素，包含了获取同步状态**失败**的线程引用、等待状态、前驱节点和后继节点，一个Node即表示一个线程；
+Node类是AbstractQueuedSynchronizer的一个内部静态类（不可继承），它是构成CLH队列的基础元素，包含了获取同步状态**失败**的线程引用、等待状态、前驱节点和后继节点，一个Node即表示一个线程；
 
-​	当前线程获取同步状态失败时，同步器会将当前线程以及等待状态等信息构造成为一个节点（Node）并将其加入CLH队列，同时会阻塞当前线程，当同步状态释放时，会把首节点中的线程唤醒，使其再次尝试获取同步状态。源码如下：
+当前线程获取同步状态失败时，同步器会将当前线程以及等待状态等信息构造成为一个节点（Node）并将其加入CLH队列，同时会阻塞当前线程，当同步状态释放时，会把首节点中的线程唤醒，使其再次尝试获取同步状态。源码如下：
 
 ```java
 static final class Node {
@@ -788,7 +788,7 @@ LockSupport是对sun.misc.Unsafe封装，主要是用来做线程阻塞和唤醒
 
 ![](./images/LockSupport阻塞对象的作用.jpg)
 
-# 2.线程锁-Lock
+# 2.【线程锁-Lock】
 
 从Java1.5起，JDK提供了java.util.concurrent.locks包，作为实现线程锁的工具类。
 
@@ -1155,7 +1155,7 @@ lock.lock();
 }
 ```
 
-# 3.并发工具类
+# 3.【并发工具类】
 
 java.util.concurrent包下还提供了4个同步工具类。
 
@@ -1256,15 +1256,11 @@ public static void main(String[] args) {
 }
 ```
 
-可能出现的结果，可以看到同一时间只有3个线程可以执行，仅当线程释放信号后，其它线程才可以抢夺信号执行：
-
-![](./images/Semaphore执行结果.png)
-
 ## 3.2.CyclicBarrier
 
-​	CyclicBarrier ，同步屏障工具类。它的作用：**让一组线程到达一个屏障（也叫同步点）时被阻塞，直到最后一个线程到达屏障时，屏障才会开门，所有被阻塞的线程才会继续执行**。
+CyclicBarrier ，同步屏障工具类。它的作用：**让一组线程到达一个屏障（也叫同步点）时被阻塞，直到最后一个线程到达屏障时，屏障才会开门，所有被阻塞的线程才会继续执行**。
 
-​    CyclicBarrier是基于[ReetrantLock](#2.1.2.ReentrantLock实现类)和[Condition](#2.3.线程条件变量)实现的，CyclicBarrier维护了一个parties和count，parties就是初始化CyclicBarrier对象时指定的拦截数，count等于parties，每当线程执行了await()方法，count就会减1，然后CyclicBarrier判断count是否等于0，如果没有则调用Condition.await()让当前线程阻塞；如果等于0，则调用Condition. signalAll()唤醒所有线程，这就是同步屏障类CyclicBarrier的实现原理。它内部还维护了一个静态内部类Generation，每次屏障打开，它都会执行内部私有方法nextGeneration()重新初始化Generation，这就是CyclicBarrier能循环使用的原理。当然，一旦线程等待超时或者线程被中断了，CyclicBarrier会调用内部私有方法breakBarrier()唤醒所有阻塞线程并将Generation的broken属性改为true，表示该屏障已被破坏。
+CyclicBarrier是基于[ReetrantLock](#2.1.2.ReentrantLock实现类)和[Condition](#2.3.线程条件变量)实现的，CyclicBarrier维护了一个parties和count，parties就是初始化CyclicBarrier对象时指定的拦截数，count等于parties，每当线程执行了await()方法，count就会减1，然后CyclicBarrier判断count是否等于0，如果没有则调用Condition.await()让当前线程阻塞；如果等于0，则调用Condition. signalAll()唤醒所有线程，这就是同步屏障类CyclicBarrier的实现原理。它内部还维护了一个静态内部类Generation，每次屏障打开，它都会执行内部私有方法nextGeneration()重新初始化Generation，这就是CyclicBarrier能循环使用的原理。当然，一旦线程等待超时或者线程被中断了，CyclicBarrier会调用内部私有方法breakBarrier()唤醒所有阻塞线程并将Generation的broken属性改为true，表示该屏障已被破坏。
 
 ```java
 /**
@@ -1356,9 +1352,9 @@ System.out.println("人到齐了...开始干活");
 
 ## 3.3.CountDownLatch
 
-​	CountDownLatch，同步计数器。通过设置一个整型参数作为计数器，每当一个线程调用countDown()方法，计数器减1。当计数器大于0 时，await()方法会阻塞线程执行，直到计数器等于0，线程才可以继续往下执行。
+CountDownLatch，同步计数器。通过设置一个整型参数作为计数器，每当一个线程调用countDown()方法，计数器减1。当计数器大于0 时，await()方法会阻塞线程执行，直到计数器等于0，线程才可以继续往下执行。
 
-​    CountDownLatch与CyclicBarrier很类似，但还是有很多区别的，最大的区别还是：**如果有n个线程在等待其它线程执行的结果，就用CountDownLatch**。你想，CyclicBarrier是让线程都阻塞在屏障上，当所有线程都到达屏障时，才继续一起执行，也就是说，所有线程都是阻塞在CyclicBarrier.await()方法上；而计数器CountDownLatch是让线程执行countDown()方法将计数值减1，线程仍可以继续往下执行，只是那个需要其它线程执行结果的线程会阻塞在CountDownLatch的await()方法上，直到计数器的值等于0，它才可以继续往下执行。另外补充一点：CountDownLatch不可重用，一个实例对象只能用一次。
+CountDownLatch与CyclicBarrier很类似，但还是有很多区别的，最大的区别还是：**如果有n个线程在等待其它线程执行的结果，就用CountDownLatch**。你想，CyclicBarrier是让线程都阻塞在屏障上，当所有线程都到达屏障时，才继续一起执行，也就是说，所有线程都是阻塞在CyclicBarrier.await()方法上；而计数器CountDownLatch是让线程执行countDown()方法将计数值减1，线程仍可以继续往下执行，只是那个需要其它线程执行结果的线程会阻塞在CountDownLatch的await()方法上，直到计数器的值等于0，它才可以继续往下执行。另外补充一点：CountDownLatch不可重用，一个实例对象只能用一次。
 
 ```java
 /**
@@ -1473,10 +1469,6 @@ public static void main(String[] args) {
 }
 ```
 
-执行结果：
-
-![](./images/CountDownLatch执行结果.png)
-
 ## 3.4.Exchanger
 
 Exchanger，同步交换器。用于两个线程之间交换数据：当一个线程到达交换点时，如果它的伙伴线程此前已经调用了此方法，那么它的伙伴会被调度唤醒并与之进行数据交换，然后各自返回继续执行；如果它的伙伴线程还没到达交换点，那么当前线程将会被挂起，直至伙伴线程到达，然后完成交换正常返回。如果当前线程被中断则抛出中断异常，又或者是等待超时则抛出超时异常。
@@ -1562,8 +1554,4 @@ public static void main(String[] args) {
     threadPool.shutdown();
 }
 ```
-
-执行结果：
-
-![](./images/ExChanger执行结果.png)
 

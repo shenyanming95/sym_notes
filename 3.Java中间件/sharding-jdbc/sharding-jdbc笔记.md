@@ -1,62 +1,4 @@
-# 1.分库分表概念
-
-分库分表其实是两个概念：分库和分表，又可以细化为：垂直拆分和水平拆分。所以分库分表其实是4个概念：
-
-1. 垂直分库
-2. 水平分库
-3. 垂直分表
-4. 水平分表
-
-分库分表就是为了解决由于数据量过大导致数据库性能降低的问题，将原来独立的数据库拆分成若干数据库组成，将数据大表拆分成若干数据表组成，使得单一数据库、单一数据表的数据量变小，从而达到提升数据库性能的目的
-
-分库分表一定是为了解决**高并发、数据量大**两个问题的，传统关系型数据库，一个数据库最多支撑到并发 2000，一张表数据量几百万的时候，性能就会很差，sql就跑得很慢。但随着公司业务的发展，数据量是绝对会越来越大的，最终数据库所能承载的数据量、数据处理能力都将遭遇瓶颈，所以我们需要【拆】
-
-## 1.1.垂直分表
-
-定义：**将一个大表按照字段分成若干张表，每张表存储原来大表的一部分字段**。
-
-按照以下原则进行垂直分表：
-
-1. 把不常用的字段单独放在一张表
-2. 把txt、blob等大字段拆分出来放在附表
-3. 经常组合查询的字段放在一张表
-
-## 1.4.垂直分库
-
-[垂直分表](#1.1.垂直分表)虽然能得到一定性能的提升，但是拆分后的表仍然处于同一个库（确切地说是位于同一个服务器上），这其实还是竞争同一个物理机的CPU、内存、网络IO和磁盘。
-
-定义：**按照业务将表进行分类，分布到不同的数据库上，每个库单独放在一个服务器上，它的核心理念是专库专用**
-
-## 1.5.水平分库
-
-用了垂直分表和垂直分库，可以将一张大表也拆分成若干业务表，再将业务表放在不同数据库上。但是，随着业务的发展，数据量剧增，每个业务表自身也会达到一个量级，这时候就需要对业务表做水平分库
-
-定义：**把同一个表的数据按照一定规则拆分到不同的数据库中，每个数据库放在独立的服务器上(每个库中的业务表结构都一样，只不过数据不同)**
-
-## 1.6.水平分表
-
-水平分库可以解决大部分的问题，但是水平分库有个缺点，就是需要增加数据库实例，这对运维压力很大，所以同时会配合使用水平分表。
-
-水平分表：**在同一个数据库内，把同一张表的数据按照一定规则拆分到多个表中，每个表的结构一样，但是数据不同，其实和水平分库类似，只不过一个是划分库，一个只划分表**
-
-## 1.7.总结
-
-总的来说，垂直划分就是根据结构来划分，水平划分就是根据业务数据来划分：
-
-- 垂直分表是拆分表字段将大表划分为各个小表，垂直分库是将一个库内的表拆分到单独数据库上
-- 水平分表是将一张表的数据划分到不同表存储，水平分库是将一张表的数据分到不同数据库存储
-
-一般来说，在系统设计阶段就应该根据业务耦合松紧来确定**垂直分库**和**垂直分表**方案（优先完成），在数据量以及访问压力不大的情况，先考虑缓存、读写分离和索引优化等方案。真到了业务数据量剧增，且持续增长，再来考虑水平分库和水平分表。
-
-千万不要为了分库分表而分库分表，技术有利就有弊，分库分表后需要解决的额外挑战：
-
-1. **事务一致性问题**：由于数据分布在不同库甚至不同库，就必须考虑分布式事务问题；
-2. **跨节点关联查询**：原先单表或者单库，如果要做多表关联查询，通过join连接查询便可以解决。但如果分库分表后，一次查询是绝对没办法做到的，需要在多库中多次查询后再拼装；
-3. **跨节点分页、排序函数**：分库分表后，limit分页、order by 排序等问题，就变得复杂，需要先在不同节点的分片节点将数据进行排序并发回，然后将不同分片发回的结果集进行汇总再排序；
-4. **主键避重**：分录分表后单表的自增主键就无法使用，需要引入全局主键，避免跨库主键重复问题；
-5. **公共表**：实际开发中，对于参数表、数据字典等公共表，都是每个库都需要使用的，所以分库分表后，对公共表数据的处理，需要同步到各个分库上。
-
-# 2.sharding-jdbc简介
+# 1.【sharding-jdbc简介】
 
 sharding-jdbc是当当网研发的开源分布式数据库中间件，从3.0开始sharding-jdbc被包含在Sharding-Sphere中，并在2020年4月16日从[Apache孵化器](http://incubator.apache.org/projects/shardingsphere.html)毕业，成为Apache顶级项目。
 
@@ -64,35 +6,35 @@ sharding-jdbc是Sharding-Sphere的模块之一，定位为轻量级Java框架，
 
 <img src="./images/sharding-jdbc架构图.png" style="zoom:60%;" />
 
-## 2.1.SQL
+## 1.1.SQL
 
-### 2.1.1.逻辑表
+### 1.1.1.逻辑表
 
 水平拆分的数据库（或数据表）的相同逻辑和数据结构表的总称，例如：订单数据根据主键拆分成10张表，分别是t_order_0 ~ t_order_9（这是[实际表](#2.1.2.真实表)名），则这些表的逻辑表名就为t_order
 
-### 2.1.2.真实表
+### 1.1.2.真实表
 
 在分片的数据库中**真实存在**的物理表，就是上面[逻辑表](#2.1.1.逻辑表)举例的t_order_0 ~ t_order_9
 
-### 2.1.3.数据节点
+### 1.1.3.数据节点
 
 数据分片的最小单元，即数据源 + 数据表，例如：db1.t_order_o，表示名称为db1的数据源（对应一个数据库）的t_order_0真实表
 
-### 2.1.4.绑定表
+### 1.1.4.绑定表
 
 指分片规则一致的主表和子表。例如：`t_order`表和`t_order_item`表，均按照`order_id`分片，则此两张表互为绑定表关系。绑定表之间的多表关联查询不会出现笛卡尔积关联，关联查询效率将大大提升
 
-### 2.1.5.广播表
+### 1.1.5.广播表
 
 指所有的分片数据源中都存在的表，表结构和表中的数据在每个数据库中均完全一致。适用于数据量不大且需要与海量数据的表进行关联查询的场景，例如：字典表。
 
-## 2.2.分片
+## 1.2.分片
 
-### 2.2.1.分片键
+### 1.2.1.分片键
 
 用于分片的**数据库字段**，是将数据库（或数据表）水平拆分的关键字段。例如：将t_order表中的主键的尾数对2取模分片，奇数的分到数据源db1，偶数的分到数据源db2，那么t_order表的主键就称为分片键。SQL中如果无分片字段，将执行全路由，性能较差。 除了对单分片字段的支持，ShardingSphere也支持根据多个字段进行分片。
 
-### 2.2.2.分片算法
+### 1.2.2.分片算法
 
 通过分片算法将数据分片，支持通过`=`、`>=`、`<=`、`>`、`<`、`BETWEEN`和`IN`分片。分片算法需要开发者自行实现，可实现的灵活度非常高。sharding-jdbc并未提供内置的分片算法，只是提供接口由开发者自行实现分片算法，当前版本提供4种：
 
@@ -112,7 +54,7 @@ sharding-jdbc是Sharding-Sphere的模块之一，定位为轻量级Java框架，
 
 对应**HintShardingAlgorithm**，用于处理使用Hint行分片的场景，需要配合**HintShardingStrategy**使用。
 
-### 2.2.3.分片策略
+### 1.2.3.分片策略
 
 包含[分片键](#2.2.1.分片键)和[分片算法](#2.2.2.分片算法)，由于分片算法的独立性，将其独立抽离，真正可用于分片操作的是分片键 + 分片算法，即分片策略 = 分片算法 + 分片键，它才是真正用于分片的实现。目前提供5种分片策略
 
@@ -136,25 +78,25 @@ sharding-jdbc是Sharding-Sphere的模块之一，定位为轻量级Java框架，
 
 对应NoneShardingStrategy。不分片的策略。
 
-### 2.2.4.SQL Hint
+### 1.2.4.SQL Hint
 
 对于分片字段非SQL决定，而由其他外置条件决定的场景，可使用SQL Hint灵活的注入分片字段。例：内部系统，按照员工登录主键分库，而数据库中并无此字段。SQL Hint支持通过Java API和SQL注释(待实现)两种方式使用。
 
-## 2.3.配置
+## 1.3.配置
 
-### 2.3.1.分片规则
+### 1.3.1.分片规则
 
 分片规则配置的总入口。包含数据源配置、表配置、绑定表配置以及读写分离配置等
 
-### 2.3.2.数据源配置
+### 1.3.2.数据源配置
 
 真实数据源列表。
 
-### 2.3.3.表配置
+### 1.3.3.表配置
 
 逻辑表名称、数据节点与分表规则的配置。
 
-### 2.3.4.数据节点配置
+### 1.3.4.数据节点配置
 
 用于配置[逻辑表](#2.1.1.逻辑表)与[真实表](#2.1.2.真实表)的映射关系。可分为均匀分布和自定义分布两种形式。
 
@@ -197,7 +139,7 @@ db1
 db0.t_order0, db0.t_order1, db1.t_order2, db1.t_order3, db1.t_order4
 ```
 
-### 2.3.5.分片策略配置
+### 1.3.5.分片策略配置
 
 对于分片策略存有数据源分片策略和表分片策略两种维度。
 
@@ -209,17 +151,17 @@ db0.t_order0, db0.t_order1, db1.t_order2, db1.t_order3, db1.t_order4
 
 对应于**TableShardingStrategy**。用于配置数据被分配的目标表，该目标表存在与该数据的目标数据源内。故表分片策略是依赖与数据源分片策略的结果的。
 
-### 2.3.6.自增主键生成策略
+### 1.3.6.自增主键生成策略
 
 通过在客户端生成自增主键替换以数据库原生自增主键的方式，做到分布式主键无重复。
 
-# 3.sharding-jdbc执行流程
+# 2.【执行流程】
 
 sharding-jdbc一个完整的执行流程：`SQL解析 => 执行器优化 => SQL路由 => SQL改写 => SQL执行 => 结果归并`
 
 <img src="./images/sharding-jdbc执行流程.png" style="zoom:67%;" />
 
-## 3.1.SQL解析
+## 2.1.SQL解析
 
 解析过程分为**词法解析**和**语法解析**。 词法解析器用于将SQL拆解为不可再分的原子符号，称为Token。并根据不同数据库方言所提供的字典，将其归类为关键字，表达式，字面量和操作符。 再使用语法解析器将SQL转换为抽象语法树。例如有如下SQL：
 
@@ -235,7 +177,7 @@ SELECT id, name FROM t_user WHERE status = 'ACTIVE' AND age > 18
 
 通过对抽象语法树的遍历去提炼分片所需的上下文，并标记有可能需要SQL改写的位置。 供分片使用的解析上下文包含查询选择项（Select Items）、表信息（Table）、分片条件（Sharding Condition）、自增主键信息（Auto increment Primary Key）、排序信息（Order By）、分组信息（Group By）以及分页信息（Limit、Rownum、Top）。 SQL的一次解析过程是不可逆的，一个个Token的按SQL原本的顺序依次进行解析，性能很高。 考虑到各种数据库SQL方言的异同，在解析模块提供了各类数据库的SQL方言字典
 
-## 3.2.SQL路由
+## 2.2.SQL路由
 
 SQL路由就是把针对[逻辑表](#2.1.1.逻辑表)的数据操作映射到对[数据节点](#2.1.3.数据节点)操作的过程。
 
@@ -324,7 +266,7 @@ SQL路由就是把针对[逻辑表](#2.1.1.逻辑表)的数据操作映射到对
 
 <img src="./images/SQL路由.png" style="zoom:67%;" />
 
-## 3.3.SQL改写
+## 2.3.SQL改写
 
 开发者面向逻辑库与逻辑表书写的SQL，并不能够直接在真实的数据库中执行，SQL改写用于将逻辑SQL改写为在真实数据库中可以正确执行的SQL。 它包括正确性改写和优化改写两部分。
 
@@ -363,7 +305,7 @@ SELECT order_id, user_id AS ORDER_BY_DERIVED_0 FROM t_order ORDER BY user_id;
 
 <img src="./images/SQL改写.png" style="zoom:80%;" />
 
-## 3.4.SQL执行
+## 2.4.SQL执行
 
 ShardingSphere采用一套自动化的执行引擎，它不是简单地将SQL通过JDBC直接发送至数据源执行；也并非直接将执行请求放入线程池去并发执行。它更关注平衡数据源连接创建以及内存占用所产生的消耗，以及最大限度地合理利用并发等问题。举个例子：如果一条SQL在经过ShardingSphere的分片后，需要操作某数据库实例下的200张表。 那么，是选择创建200个连接并行执行，还是选择创建一个连接串行执行呢？ShardingSphere就是为了解决维持这个平衡，提出了连接模式（Connection Mode）的概念，将其划分为内存限制模式（MEMORY_STRICTLY）和连接限制模式（CONNECTION_STRICTLY）两种类型
 
@@ -387,7 +329,7 @@ ShardingSphere严格控制对一次操作所耗费的数据库连接数量。 �
 
 <img src="./images/SQL执行.png" style="zoom:70%;" />
 
-## 3.5.结果归并
+## 2.5.结果归并
 
 将从各个数据节点获取的多数据结果集，组合成为一个结果集并正确的返回至请求客户端，称为结果归并。从结构划分，可分为流式归并、内存归并和装饰者归并。流式归并和内存归并是互斥的，装饰者归并可以在流式归并和内存归并之上做进一步的处理。
 
@@ -434,11 +376,11 @@ SELECT name, SUM(score) FROM t_score GROUP BY name ORDER BY name;
 SELECT name, SUM(score) FROM t_score GROUP BY name ORDER BY score DESC;
 ```
 
-# 4.sharding-jdbc运用配置
+# 3.【运用配置】
 
 sharding-jdbc的配置核心就是数据源javax.sql.DataSource的代理，所以不管使用哪种功能，都是在构造它提供的数据源实现类
 
-## 4.1.数据分片
+## 3.1.数据分片
 
 数据分片的数据源创建工厂：ShardingDataSourceFactory，通过它的createDataSource()就可以创建出一个具有数据分片功能的数据源代理类，该方法需要三个参数依次为：
 
@@ -448,7 +390,7 @@ sharding-jdbc的配置核心就是数据源javax.sql.DataSource的代理，所�
 | shardingRuleConfig | ShardingRuleConfiguration | 数据分片配置规则 |
 | props (?)          | Properties                | 属性配置         |
 
-### 4.1.1.dataSourceMap
+### 3.1.1.dataSourceMap
 
 实际数据源配置，需要指定数据源名称和数据源的实例，例如：
 
@@ -458,7 +400,7 @@ retMap.put("db1", new HikariDataSource());
 retMap.put("db2", new HikariDataSource());
 ```
 
-### 4.1.2.ShardingRuleConfiguration
+### 3.1.2.ShardingRuleConfiguration
 
 ShardingRuleConfiguration 是分片规则配置对象，它是主要配置类。其中，TableRuleConfiguration是具体的分片规则配置对象。ShardingRuleConfiguration 还可以指定默认配置，当TableRuleConfiguration未配置的项就会用这个默认配置。
 
@@ -473,7 +415,7 @@ ShardingRuleConfiguration 是分片规则配置对象，它是主要配置类。
 | defaultKeyGeneratorConfig             | KeyGeneratorConfiguration                 | 默认自增列值生成器配置，缺省将使用org.apache.shardingsphere.core.keygen.generator.impl.SnowflakeKeyGenerator |
 | masterSlaveRuleConfigs                | Collection\<MasterSlaveRuleConfiguration> | 读写分离规则，缺省表示不使用读写分离                         |
 
-#### 4.1.2.1.TableRuleConfiguration
+#### 3.1.2.1.TableRuleConfiguration
 
 TableRuleConfiguration，表分片规则配置对象：
 
@@ -486,7 +428,7 @@ TableRuleConfiguration，表分片规则配置对象：
 | keyGeneratorConfig (?)         | KeyGeneratorConfiguration     | 自增列值生成器配置，缺省表示使用默认自增主键生成器           |
 | encryptorConfiguration (?)     | EncryptorConfiguration        | 加解密生成器配置                                             |
 
-##### 4.1.2.1.1.ShardingStrategyConfiguration
+##### 3.1.2.1.1.ShardingStrategyConfiguration
 
 ShardingStrategyConfiguration是指定分片策略（分库和分表）的配置对象，默认有5个分片策略配置实现：
 
@@ -520,7 +462,7 @@ ShardingStrategyConfiguration是指定分片策略（分库和分表）的配置
 
 - **NoneShardingStrategyConfiguration**，用于配置不分片的策略。
 
-##### 4.1.2.1.2.KeyGeneratorConfiguration
+##### 3.1.2.1.2.KeyGeneratorConfiguration
 
 KeyGeneratorConfiguration，自增列值生成器配置类
 
@@ -538,7 +480,7 @@ KeyGeneratorConfiguration，自增列值生成器配置类
 | max.tolerate.time.difference.milliseconds | long     | 最大容忍时钟回退时间，单位：毫秒。默认为10毫秒               |
 | max.vibration.offset                      | int      | 最大抖动上限值，范围[0, 4096)，默认为1。注：若使用此算法生成值作分片值，建议配置此属性。此算法在不同毫秒内所生成的key取模2^n (2^n一般为分库或分表数) 之后结果总为0或1。为防止上述分片问题，建议将此属性值配置为(2^n)-1 |
 
-##### 4.1.2.1.3.EncryptorConfiguration
+##### 3.1.2.1.3.EncryptorConfiguration
 
 加解密配置
 
@@ -569,11 +511,11 @@ KeyGeneratorConfiguration，自增列值生成器配置类
 | assistedQueryColumn | String   | 辅助查询字段，针对ShardingQueryAssistedEncryptor类型的加解密器进行辅助查询 |
 | encryptor           | String   | 加解密器名字                                                 |
 
-#### 4.1.2.2.MasterSlaveRuleConfiguration
+#### 3.1.2.2.MasterSlaveRuleConfiguration
 
 在数据分片的基础上，增加读写分离的功能，就可以使用 MasterSlaveRuleConfiguration 配置类，它其实就是单独使用[读写分离](#4.2.2.MasterSlaveRuleConfiguration)时的配置。
 
-### 4.1.3.Properties
+### 3.1.3.Properties
 
 数据源相关属性的配置项，可以为以下属性。
 
@@ -586,7 +528,7 @@ KeyGeneratorConfiguration，自增列值生成器配置类
 | query.with.cipher.column               | boolean  | 当存在明文列时，是否使用密文列查询，默认值: true        |
 | allow.range.query.with.inline.sharding | boolean  | 当使用inline分表策略时，是否允许范围查询，默认值: false |
 
-## 4.2.读写分离
+## 3.2.读写分离
 
 读写分离的数据源创建工厂类：MasterSlaveDataSourceFactory，通过它的createDataSource()就可以创建出一个具有读写分离功能的数据源代理类，该方法需要三个参数依次为：
 
@@ -596,11 +538,11 @@ KeyGeneratorConfiguration，自增列值生成器配置类
 | masterSlaveRuleConfig | MasterSlaveRuleConfiguration | 读写分离规则         |
 | props                 | Properties                   | 属性配置             |
 
-### 4.2.1.dataSourceMap
+### 3.2.1.dataSourceMap
 
 同数据分片一样，配置实际的数据源
 
-### 4.2.2.MasterSlaveRuleConfiguration
+### 3.2.2.MasterSlaveRuleConfiguration
 
 读写分离规则配置对象。
 
@@ -611,7 +553,7 @@ KeyGeneratorConfiguration，自增列值生成器配置类
 | slaveDataSourceNames     | Collection\<String>             | 从库数据源名称列表 |
 | loadBalanceAlgorithm (?) | MasterSlaveLoadBalanceAlgorithm | 从库负载均衡算法   |
 
-### 4.2.2.Properties
+### 3.2.2.Properties
 
 属性配置项，可以为以下属性。
 
@@ -621,7 +563,3 @@ KeyGeneratorConfiguration，自增列值生成器配置类
 | executor.size (?)              | int      | 用于SQL执行的工作线程数量，为零则表示无限制。默认值: 0 |
 | max.connections.size.per.query | int      | 每个物理数据库为每次查询分配的最大连接数量。默认值: 1  |
 | check.table.metadata.enabled   | boolean  | 是否在启动时检查分表元数据一致性，默认值: false        |
-
-# 5.sharding-jdbc源码分析
-
-....待定

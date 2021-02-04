@@ -1,16 +1,10 @@
-# 1.【原子操作】
+# 1.【原子性操作】
 
-## 1.1.什么是CAS?
+## 1.1.CAS算法
 
-### 1.1.1.CAS算法
+CAS，全称为Compare-And-Swap，可以说整个Java并发包的一个核心算法思想。它是一条CPU并发原语，原语属于操作系统用语范畴，由若干指令组成用来完成某个功能的一个过程。**原语的执行必须是连续的，执行过程中不允许被中断**。CAS的语义是“**我认为V的值应该为A，如果是，那么将V的值更新为B，否则不修改，并告诉V的值实际为多少**”，CAS有3个操作数，内存值V，预期值A，要修改的新值B。当且仅当预期值A和内存值V相同，将内存值V修改为B，否则什么都不做。
 
-CAS可以说整个Java并发包的一个核心算法思想，全称为Compare-And-Swap。它是一条CPU并发原语，原语属于操作系统用语范畴，由若干指令组成用来完成某个功能的一个过程。**原语的执行必须是连续的，执行过程中不允许被中断**。CAS的语义是“**我认为V的值应该为A，如果是，那么将V的值更新为B，否则不修改，并告诉V的值实际为多少**”，CAS有3个操作数，内存值V，预期值A，要修改的新值B。当且仅当预期值A和内存值V相同，将内存值V修改为B，否则什么都不做。
-
-常用的线程并发控制：synchronized，属于“悲观锁”，一个线程在解锁之前，其它线程访问同步资源只能阻塞等待持锁线程的释放；而当多个线程尝试使用CAS同时更新同一个变量时，只有其中一个线程能更新变量的值，而其它线程都失败，失败的线程并不会被挂起，而是被告知这次竞争中失败，并可以再次尝试(实际开发会自旋的方式不断重试)。
-
-### 1.1.2.CAS缺点
-
-CAS算法虽然不会像锁一样重量级，但上天是公平的，CAS虽然不会阻塞线程，却也有3个缺点：
+常用的线程并发控制：synchronized，属于“悲观锁”，一个线程在解锁之前，其它线程访问同步资源只能阻塞等待持锁线程的释放；而当多个线程尝试使用CAS同时更新同一个变量时，只有其中一个线程能更新变量的值，而其它线程都失败，失败的线程并不会被挂起，而是被告知这次竞争中失败，并可以再次尝试(实际开发会自旋的方式不断重试)。CAS算法虽然不会像锁一样重量级，但上天是公平的，CAS虽然不会阻塞线程，却也有3个缺点：
 
 1. **循环时间长开销很大**：CAS更新失败的线程会以自旋的方式不断继续尝试更新，假如竞争激烈，那么线程就会一直地循环
 2. **只能保证一个共享变量的原子操作**：对多个共享变量操作时，CAS就无法保证操作的原子性，此时只能用锁
@@ -32,23 +26,19 @@ ABA问题就是CAS存在的典型问题，它发生的场景是：线程1和线�
 
 这个问题就很严重了，整个栈结构都断裂了。为了解决CAS的ABA问题，可以通过增加一个版本号version作为对象标识，每个线程更新一次共享对象，就将它的version加1，后面线程会结合对象当前内存值 + version来共同判断是否有其它线程更新过，实际开发中很多乐观锁就是这样处理ABA问题滴，Java也提供一个原子操作类：AtomicStampedReference！
 
-## 1.2.什么是UnSafe?
+## 1.2.CAS实现
 
-CAS并发原语体现在Java语言就是sun.misc.Unsafe类，调用此类的CAS方法，JVM会帮我们实现出CAS汇编指令。这个Unsafe是什么？Unsafe类位于sun.misc包下，不属于Java标准。Unsafe类使Java拥有了像C语言一样操作内存空间的能力，可以直接操作堆外内存，可以随意查看及修改JVM运行时的数据结构。官方都不建议直接使用Unsafe类，它能干的事太多了，所以危险性也很大。
-
-### 1.2.1.UnSafe实例
-
-Unsafe是单例的，想获取一个Unsafe实例，只能通过getUnsafe()方法，但是这个方法做了安全限制，只有**主类加载器**加载的类才能调用这个方法，否则会抛出异常，源码如下：
+CAS并发原语体现在Java语言就是sun.misc.Unsafe类，调用此类的CAS方法，JVM会帮我们实现出CAS汇编指令。Unsafe类位于sun.misc包下，不属于Java标准。Unsafe类使Java拥有了像C语言一样操作内存空间的能力，可以直接操作堆外内存，可以随意查看及修改JVM运行时的数据结构。官方都不建议直接使用Unsafe类，它能干的事太多了，所以危险性也很大。Unsafe是单例的，想获取一个Unsafe实例，只能通过getUnsafe()方法，但是这个方法做了安全限制，只有**主类加载器**加载的类才能调用这个方法，否则会抛出异常。源码：
 
 ```java
 @CallerSensitive
 public static Unsafe getUnsafe() {
-    Class var0 = Reflection.getCallerClass();
-    if (!VM.isSystemDomainLoader(var0.getClassLoader())) {
-        throw new SecurityException("Unsafe");
-    } else {
-        return theUnsafe;
-    }
+  Class var0 = Reflection.getCallerClass();
+  if (!VM.isSystemDomainLoader(var0.getClassLoader())) {
+    throw new SecurityException("Unsafe");
+  } else {
+    return theUnsafe;
+  }
 }
 ```
 
@@ -56,22 +46,20 @@ public static Unsafe getUnsafe() {
 
 ```java
 public void getUnsafe(){
-    try {
-        // 利用反射获取成员变量theUnsafe
-        Field field = Unsafe.class.getDeclaredField("theUnsafe");
-        // 由于它是private类型，需要设置可访问性
-        field.setAccessible(true);
-        // 通过theUnsafe获取实例对象，由于它还是static类型，所以参数为null
-        Unsafe unSafe = (Unsafe)field.get(null);
-    } catch (NoSuchFieldException|IllegalAccessException e) {
-        e.printStackTrace();
-    } 
+  try {
+    // 利用反射获取成员变量theUnsafe
+    Field field = Unsafe.class.getDeclaredField("theUnsafe");
+    // 由于它是private类型，需要设置可访问性
+    field.setAccessible(true);
+    // 通过theUnsafe获取实例对象，由于它还是static类型，所以参数为null
+    Unsafe unSafe = (Unsafe)field.get(null);
+  } catch (NoSuchFieldException|IllegalAccessException e) {
+    e.printStackTrace();
+  } 
 }
 ```
 
-### 1.2.2.UnSafe功能
-
-#### 1.2.2.1.内存管理
+### 1.2.1.内存管理
 
 allocateMemory（分配内存）、reallocateMemory（重新分配内存）
 
@@ -91,21 +79,27 @@ putOrderedInt（将整数写入指定内存地址、有序或者有延迟的方�
 
 getXXX和putXXX包含了各种基本类型的操作
 
-#### 1.2.2.2.对象实例化
+### 1.2.2.对象实例化
 
 allocateInstance()方法提供了另一种创建实例的途径。通常我们可以用new或者反射来实例化对象，使用allocateInstance()方法可以直接生成对象实例，且**无需调用构造方法和其它初始化方法**。这在对象反序列化的时候会很有用，能够重建和设置final字段，而不需要调用构造方法。
 
-#### 1.2.2.3.操作类、对象、变量
+### 1.2.3.操作类、对象、变量
 
-staticFieldOffset（静态域偏移）、defineClass（定义类）、defineAnonymousClass（定义匿名类）、ensureClassInitialized（确保类初始化）、objectFieldOffset（对象域偏移）等。
+staticFieldOffset（静态域偏移）
+
+defineClass（定义类）、defineAnonymousClass（定义匿名类）
+
+ensureClassInitialized（确保类初始化）、objectFieldOffset（对象域偏移）
 
 通过这些方法我们可以获取对象的指针，通过对指针进行偏移，我们不仅可以直接修改指针指向的数据（即使它们是私有的），甚至可以找到JVM已经认定为垃圾、可以进行回收的对象
 
-#### 1.2.2.4.数组操作
+### 1.2.4.数组操作
 
-arrayBaseOffset（获取数组第一个元素的偏移地址）、arrayIndexScale（获取数组中元素的增量地址）。arrayBaseOffset与arrayIndexScale配合起来使用，就可以定位数组中每个元素在内存中的位置。由于Java的数组最大值为Integer.MAX_VALUE，使用Unsafe类的内存分配方法可以实现超大数组。实际上这样的数据就可以认为是C数组，因此需要注意在合适的时间释放内存
+arrayBaseOffset（获取数组第一个元素的偏移地址）、arrayIndexScale（获取数组中元素的增量地址）。
 
-#### 1.2.2.5.多线程同步
+arrayBaseOffset与arrayIndexScale配合起来使用，就可以定位数组中每个元素在内存中的位置。由于Java的数组最大值为Integer.MAX_VALUE，使用Unsafe类的内存分配方法可以实现超大数组。实际上这样的数据就可以认为是C数组，因此需要注意在合适的时间释放内存
+
+### 1.2.5.多线程同步
 
 这部分包括了monitorEnter、tryMonitorEnter、monitorExit、compareAndSwapInt、compareAndSwapObject、compareAndSwapLong等方法。其中monitorEnter、tryMonitorEnter、monitorExit已经被标记为deprecated不建议使用。Unsafe类的CAS操作可能是用的最多的，它为Java的锁机制提供了一种新的解决办法，比如AtomicInteger等类都是通过该方法来实现的。compareAndSwap方法是原子的，可以避免繁重的锁机制，提高代码效率。这是一种乐观锁，通常认为在大部分情况下不出现竞态条件，如果操作失败，会不断重试直到成功。重点看下这几个CAS方法：
 
@@ -148,13 +142,13 @@ public final native boolean compareAndSwapLong(Object o, long offset,
 
 第四个参数x：表示将要更新的新值
 
-#### 1.2.2.6.挂起与恢复
+### 1.2.6.挂起与恢复
 
 这部分包括了park、unpark等方法。
 
 将一个线程进行挂起是通过park方法实现的，调用 park后，线程将一直阻塞直到超时或者中断等条件出现。unpark可以终止一个挂起的线程，使其恢复正常。整个并发框架中对线程的挂起操作被封装在 LockSupport类中，LockSupport类中有各种版本pack方法，但最终都调用了Unsafe.park()方法。
 
-#### 1.2.2.7.内存屏障
+### 1.2.7.内存屏障
 
 包括loadFence、storeFence、fullFence等方法。这是在Java 8新引入的，用于定义内存屏障，避免代码重排序。
 
@@ -164,9 +158,9 @@ storeFence()表示该方法之前的所有store操作在内存屏障之前完成
 
 fullFence()表示该方法之前的所有load、store操作在内存屏障之前完成。
 
-## 1.3.原子操作类
+## 1.3.CAS应用
 
-jdk1.5以后，java多出了一个工具包：java.util.concurrent.Atomic，包里一共有四种原子更新方式，分别是：原子更新基本类型、原子更新数组、原子更新引用、原子更新字段。它们提供了对数据操作的线程安全保证，说白了就是线程同步。但是呢！Atomic类不是一个简单的同步封装，其内部实现不是简单的使用锁机制，而是一个更为高效的方式[CAS (compare and swap) ](#1.1什么是CAS？)+ volatile，通过CAS自旋实现原子操作的更新，从而避免了锁的高开销，执行效率大为提升打开Atomic包下类的源码，会发现Atomic包里的类基本都是使用[Unsafe](#1.2.什么是Unsafe？)实现的包装类。
+jdk1.5以后，java多出了一个工具包：java.util.concurrent.Atomic，包里一共有四种原子更新方式，分别是：原子更新基本类型、原子更新数组、原子更新引用、原子更新字段。它们提供了对数据操作的线程安全保证，说白了就是线程同步。但是呢！Atomic类不是一个简单的同步封装，其内部实现不是简单的使用锁机制，而是一个更为高效的方式CAS (compare and swap) + volatile，通过CAS自旋实现原子操作的更新，从而避免了锁的高开销，执行效率大为提升打开Atomic包下类的源码，会发现Atomic包里的类基本都是使用Unsafe实现的包装类。
 
 ### 1.3.1.原子更新基本类型
 
@@ -225,7 +219,7 @@ AtomicInteger只能更新一个变量，如果要原子的更新多个变量，�
 
 2. AtomicLongFieldUpdater：原子更新长整型字段的更新器
 
-3. AtomicStampedReference：原子更新带有版本号的引用类型([ABA问题](#1.1.2.1.ABA问题)解决)
+3. AtomicStampedReference：原子更新带有版本号的引用类型(ABA问题解决)
 
 # 2.【线程池】
 
@@ -263,49 +257,47 @@ ExecutorService接口继承了Executor接口，提供了更丰富的实现多线
 
 ```java
 public interface ExecutorService extends Executor {
-    // 关闭线程池, 不再接收新的任务, 已提交的任务继续执行
-    void shutdown();
+  // 关闭线程池, 不再接收新的任务, 已提交的任务继续执行
+  void shutdown();
 
-    // 关闭线程池, 不再接收新的任务, 尝试停止正在执行的所有任务. 它与shutdown()相比,
-    // 会去停止当前正在进行的任务
-    List<Runnable> shutdownNow();
+  // 关闭线程池, 不再接收新的任务, 尝试停止正在执行的所有任务. 它与shutdown()相比,
+  // 会去停止当前正在进行的任务
+  List<Runnable> shutdownNow();
 
-    //线程池是否已经关闭
-    boolean isShutdown();
+  //线程池是否已经关闭
+  boolean isShutdown();
 
-    // 仅当线程池所有任务(不管运行or等待运行)都结束, 才会返回true; 而且只有在调用了
-    // shutdown() 或 shutdownNow()方法后, 此方法才有可能返回true.
-    boolean isTerminated();
+  // 仅当线程池所有任务(不管运行or等待运行)都结束, 才会返回true; 而且只有在调用了
+  // shutdown() 或 shutdownNow()方法后, 此方法才有可能返回true.
+  boolean isTerminated();
 
-    // 调用shutdown() 或 shutdownNow()后, 调用此方法会一直阻塞, 直到所有任务执行完 or 
-    // 指定的超时时间到达 or 当前线程被中断. 如果返回true表示线程池已终止, 返回false表示
-    // 超时等待了.
-    boolean awaitTermination(long timeout, TimeUnit unit) 
-        throws InterruptedException;
+  // 调用shutdown() 或 shutdownNow()后, 调用此方法会一直阻塞, 直到所有任务执行完 or 
+  // 指定的超时时间到达 or 当前线程被中断. 如果返回true表示线程池已终止, 返回false表示
+  // 超时等待了.
+  boolean awaitTermination(long timeout, TimeUnit unit) 
+    throws InterruptedException;
 
-    // 这3个方法都是提交一个有返回值的任务
-    <T> Future<T> submit(Callable<T> task);
-    <T> Future<T> submit(Runnable task, T result); //第二个参数会放到Future作为返回值
-    Future<?> submit(Runnable task);
+  // 这3个方法都是提交一个有返回值的任务
+  <T> Future<T> submit(Callable<T> task);
+  <T> Future<T> submit(Runnable task, T result); //第二个参数会放到Future作为返回值
+  Future<?> submit(Runnable task);
 
-    // 执行所有任务, 返回Future类型的list集合. 第二个较第一个增加了超时时间.
-    <T> List<Future<T>> invokeAll(Collection<? extends Callable<T>> tasks);
-    <T> List<Future<T>> invokeAll(Collection<? extends Callable<T>> tasks,
-                                  long timeout, TimeUnit unit);
+  // 执行所有任务, 返回Future类型的list集合. 第二个较第一个增加了超时时间.
+  <T> List<Future<T>> invokeAll(Collection<? extends Callable<T>> tasks);
+  <T> List<Future<T>> invokeAll(Collection<? extends Callable<T>> tasks,
+                                long timeout, TimeUnit unit);
 
-    // 只要参数tasks内的一个任务结束了, 方法立刻返回, 值为执行完的那个任务的结果.
-    // 第二个方法较第一个增加了超时等待时间.
-    <T> T invokeAny(Collection<? extends Callable<T>> tasks);
-    <T> T invokeAny(Collection<? extends Callable<T>> tasks,
-                    long timeout, TimeUnit unit);
+  // 只要参数tasks内的一个任务结束了, 方法立刻返回, 值为执行完的那个任务的结果.
+  // 第二个方法较第一个增加了超时等待时间.
+  <T> T invokeAny(Collection<? extends Callable<T>> tasks);
+  <T> T invokeAny(Collection<? extends Callable<T>> tasks,
+                  long timeout, TimeUnit unit);
 }
 ```
 
 ### 2.1.3.AbstractExecutorService
 
 AbstractExecutorService实现了ExecutorService接口，它实现了非常有用的一些方法供子类直接使用
-
-![](./images/AbstractExecutorService方法.png)
 
 ## 2.2.创建线程池
 
@@ -593,7 +585,7 @@ public class ThreadPoolExecutor extends AbstractExecutorService {
     // 将整数 c 的低 29 位修改为 0, 就得到了线程池的状态
     private static int runStateOf(int c)   { return c & ~CAPACITY; }
 
-    // 将整数 c 的高 3 为修改为 0，就得到了线程池中的线程数
+    // 将整数 c 的高 3 位修改为 0，就得到了线程池中的线程数
     private static int workerCountOf(int c) { return c & CAPACITY; }
 
     private static int ctlOf(int rs, int wc) { return rs | wc; }
@@ -658,9 +650,7 @@ class Worker extends AbstractQueuedSynchronizer implements Runnable{
 
 ### 2.5.3.线程池运行流程
 
-​	当通过execute()方法提交一个任务，线程池根据[处理流程](#2.3.处理流程)要么创建核心线程，要么将任务存入到阻塞队列。当线程池创建核心线程时，实际上就是构造一个Worker实例，将当前任务赋给它，同时将它构造成一个新线程。当这个线程启动时，Worker的run()方法就被调用，就会先执行初始任务，然后从阻塞队列中开始获取任务执行，因为Worker调用的是阻塞队列的take()方法，这个方法在队列为空时会被阻塞，直到有新任务放入到阻塞中。
-
-​	其实通过源码的分析，线程池并没有对核心线程与非核心线程做区分，它们实际都是一个Worker，只不过判断容量的逻辑不一样罢了！！
+当通过execute()方法提交一个任务，线程池根据[处理流程](#2.3.处理流程)要么创建核心线程，要么将任务存入到阻塞队列。当线程池创建核心线程时，实际上就是构造一个Worker实例，将当前任务赋给它，同时将它构造成一个新线程。当这个线程启动时，Worker的run()方法就被调用，就会先执行初始任务，然后从阻塞队列中开始获取任务执行，因为Worker调用的是阻塞队列的take()方法，这个方法在队列为空时会被阻塞，直到有新任务放入到阻塞中。其实通过源码的分析，线程池并没有对核心线程与非核心线程做区分，它们实际都是一个Worker，只不过判断容量的逻辑不一样罢了！！
 
 #### 2.5.3.1.execute()
 
@@ -670,9 +660,10 @@ class Worker extends AbstractQueuedSynchronizer implements Runnable{
 // 源码：ThreadPoolExecutor - 1342
 public void execute(Runnable command) {
     // 保证提交的任务不能为空
-    if (command == null)
-        throw new NullPointerException();
-    
+    if (command == null){
+      throw new NullPointerException();
+    }
+        
     // 获取ctl的值,ctl高三位表示线程状态, 
     // 低二十九位表示线程(Worker)数量
     int c = ctl.get();
@@ -694,18 +685,16 @@ public void execute(Runnable command) {
 
         // 若线程池不处于运行状态, 且从阻塞队列移除当前任务成功, 调用RejectedExecutionHandler
         // 接口拒绝执行此次任务
-        if (!isRunning(recheck) && remove(command))
-			reject(command);
-
-        // 若是运行的Worker数量等于0, 创建非核心线程, 其初始任务为null.
+        if (!isRunning(recheck) && remove(command)){
+          reject(command);
+        } else if (workerCountOf(recheck) == 0){
+          // 若是运行的Worker数量等于0, 创建非核心线程, 其初始任务为null.
         // 这块代码的真正意图是：担心任务提交到队列中了, 但是线程都关闭了
-        else if (workerCountOf(recheck) == 0)
-			addWorker(null, false);
-
-    }
-
-    // 要是线程池不是运行状态, 又或者阻塞队列已满, 就创建非核心线程(实际也是创建Worker)去执行
-	else if (!addWorker(command, false))
+          addWorker(null, false);
+        }
+			
+    } else if (!addWorker(command, false))
+        // 要是线程池不是运行状态, 又或者阻塞队列已满, 就创建非核心线程(实际也是创建Worker)去执行
         // 如果创建非核心线程失败, 那么同样调用RejectedExecutionHandler接口拒绝此次任务
         reject(command);
 }

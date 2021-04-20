@@ -1,4 +1,4 @@
-# 1.Netty简介
+# 1.【Netty简介】
 
 netty可以由一句话概括：**异步<sup>①</sup>**的**事件驱动<sup>②</sup>**的**网络应用<sup>③</sup>**程序框架
 
@@ -6,7 +6,18 @@ netty可以由一句话概括：**异步<sup>①</sup>**的**事件驱动<sup>�
 
 netty可以用来快速开发高性能、高可靠性的网络服务器和客户端程序。使用 netty 可以确保快速和简单地开发出一个网络应用，例如实现了某种协议的客户，服务端应用。netty 相当简化和流线化了网络应用的编程开发过程，例如：TCP和UDP的socket 服务开发！
 
-# 2.Reactor模式
+## 1.1.I/O模式
+
+java中有3种I/O模式，分别是：BIO、NIO和AIO。相应地，netty曾经对它们都做了支持，BIO模式在netty中称为OIO（old io），属于同步阻塞模式，现已被标记为Deprecated；NIO模式是netty常用且建议使用的模式，在netty中给出了在不同平台的实现类；AIO模式是netty5要增加的模式，但是由于性能提高不明显且使用难度增加，因此被netty社区废除（服务器常用Linux，但Linux下AIO不成熟，相较于NIO性能提高不明显）
+
+![](./images/netty对IO模式的支持.png)
+
+通用的NIO实现（上图中的Common）在Linux下也是使用epoll，但是netty还是单独为其实现一套，主要原因是有两点：
+
+- 暴露了更多的可控参数
+- 垃圾回收更少、性能更好
+
+# 2.【Reactor模式】
 
 netty是按照Reactor模式去设计整体架构，何为Reactor模式？它是一种基于事件驱动的设计模式，将一个或多个客户端请求分离（demultiplex）和调度（dispatch）给事件处理器(event handler)处理。换句话说，注册感兴趣的事件→扫描是否有感兴趣的事件发生→事件发生后作出相应处理
 
@@ -328,7 +339,7 @@ class Handler implements Runnable {
 
 5. **dispatch handler**。当事件对应的handle变为ready状态(即可用状态)，同步事件分离器就通知分发器，分发器就会通过这个handle选择恰当的事件处理器回调方法。
 
-## 2.3.Netty对Reactor的支持
+## 2.3.Netty实现
 
 netty用它巧妙的设计，很简单地可以实现不同Reactor的效果：
 
@@ -357,7 +368,7 @@ netty用它巧妙的设计，很简单地可以实现不同Reactor的效果：
   serverBootstrap.group(parentGroup, childGroup);
   ```
 
-# 3.Netty缓冲区
+# 3.【Netty缓冲区】
 
 ## 3.1.三种缓冲区
 
@@ -397,7 +408,7 @@ netty针对缓冲区自己定义了一个io.netty.buffer.ByteBuf类，它内部�
 
 ![](./images/netty-ByteBuf.png)
 
-# 4.Netty事件循环
+# 4.【Netty事件循环】
 
 <img src="./images/netty事件循环组类关系.png" style="zoom:80%;" />
 
@@ -427,7 +438,7 @@ EventLoop、EventLoopGroup、Thread、Channel之间的相互关系：
 
 不要将长时间执行的耗时任务放入到EventLoop的执行队列中，因为它将会一直阻塞该线程所对应的所有Channel上的其它执行任务，若需要进行阻塞调用或耗时的操作，则建议使用一个专门的EventExecutor(业务线程池)。
 
-#  5.Netty处理器
+#  5.【Netty处理器】
 
 ## 5.1.ChannelHandler
 
@@ -733,9 +744,9 @@ p2.addLast("f3", fh);
 p2.addLast("f4", fh);
 ```
 
-## 5.3.编码器
+## 5.3.编解码器
 
-**编解码器：**无论向网络中写入的数据是什么类型（int、char、String..），数据在网络中传输，都是以字节流的形式呈现的；将数据由原先形式转换为字节流的操作称为编码（encode），将数据由字节转换为它原本的格式或其它格式的操作称为解码（decode），编解码统一称为codec！netty提供专门处理编解码的[ChannelHanlder](#5.1.ChannelHandler)，这些处理器就称为编解码器。
+**编解码器：**无论向网络中写入的数据是什么类型（int、char、String..），数据在网络中传输，都是以字节的形式呈现的；将数据由原先形式转换为字节流的操作称为编码（encode），将数据由字节转换为它原本的格式或其它格式的操作称为解码（decode），编解码统一称为codec！netty提供专门处理编解码的[ChannelHanlder](#5.1.ChannelHandler)，这些处理器就称为编解码器。
 
 **编码器：**本质上是出站处理器，因此编码一定是[ChannelOutboundHandler](#5.1.2.出站处理器)
 
@@ -747,25 +758,21 @@ p2.addLast("f4", fh);
 
 2.解码器进行数据解码时，一定要判断ByteBuf的字节数是否足够！！
 
-### 5.3.1.ByteToMessageDecoder
+### 5.3.1.“一次”编解码
 
-netty最顶层的解码器抽象类：ByteToMessageDecoder
+“一次”编解码的意思就是将网络Socket传输的字节流数据进行处理，主要用来**处理TCP粘包/半包**问题，对应：
 
-### 5.3.2.MessageToByteEncoder
+- 解码器抽象类：ByteToMessageDecoder，它会源源不断地将ByteBuf的数据累加处理；
+- 编码器抽象类：MessageToByteEncoder
 
-netty最顶层的编码器抽象类：MessageToByteEncoder
+### 5.3.2.“二次”编解码
 
-## 5.4.常用组件
+”一次“编解码的结果还是字节（ByteBuf），没办法直接使用，因此还需要通过”二次“编解码将字节转为Java对象：
 
-### 5.4.1.SimpleChannelInboundHandler
+- 解码器抽象类：MessageToMessageDecoder
+- 编码器抽象类：MessageToMessageEncoder
 
-....
-
-### 5.4.2.ChannelInitializer
-
-....
-
-# 6.Netty通道
+# 6.【Netty通道】
 
 ## 6.1.Channel
 
@@ -814,7 +821,7 @@ netty的io.netty.util.concurrent.Promise接口继承了io.netty.util.concurrent.
 
 ChannelPromise接口继承了ChannelFuture接口和Promise接口，同样提供了#addListener()方法，注册ChannelFutureListener，当通道操作执行成功或失败时，自动触发返回结果；并且ChannelPromise可以手动设定通道操作的成功与失败！
 
-# 7.Netty配置类
+# 7.【Netty配置类】
 
 ## 7.1.AbstractBootstrap
 
@@ -858,15 +865,17 @@ private volatile EventLoopGroup childGroup;
 private volatile ChannelHandler childHandler;
 ```
 
-# 8.Netty内存池
+# 8.【Netty内存管理】
 
 netty设计了一套内存池（参考jemalloc的原理），用来对内存进行管理，netty内存管理实质就是先分配一块大内存，然后在内存的分配和回收过程中，使用一些数据结构记录内存使用状态，如果有新的分配请求，根据这些状态信息寻找最合适的位置并更新内存结构。释放内存时候：同步修改数据结构。
 
-## 8.1.内存管理粒度
+## 8.1.设计原理
+
+### 8.1.1.管理粒度
 
 netty内存管理的粒度分为：
 
-- **Chunk**：netty向操作系统申请内存是以Chunk为单位申请的，内存分配也是基于Chunk。Chunk是Page为单元的集合，默认16M；
+- **Chunk**：netty向操作系统申请内存是以Chunk为单位申请的，内存分配也是基于Chunk。Chunk是以Page为单元的集合，默认16M；
 - **Page**: 内存管理的最小单元，默认8K；
 - **SubPage**: Page内的内存分配单元。
 
@@ -874,9 +883,9 @@ netty逻辑上将内存大小分为了tiny, small, normal, huge 几个单位。�
 
 <img src="./images/netty内存管理粒度.png" style="zoom:55%;" />
 
-## 8.2.内存管理层级
+### 8.1.2.管理层级
 
-netty内存池的层级结构，主要分为Arena、ChunkList、Chunk、Page、Subpage这5个层级，
+netty内存池的层级结构，主要分为Arena、ChunkList、Chunk、Page、Subpage这5个层级
 
 - Arena代表1个内存区域，为了优化内存区域的并发访问，netty中内存池是由多个Arena组成的数组，分配时会每个线程按照轮询策略选择1个Arena进行内存分配；
 
@@ -907,7 +916,7 @@ abstract class PoolArena<T> implements PoolArenaMetric {
 }
 ```
 
-## 8.3.内存分配流程
+## 8.2.内存分配流程
 
 - PoolArena：内存分配中心
 - PoolChunk：负责Chunk内的内存分配
@@ -915,87 +924,237 @@ abstract class PoolArena<T> implements PoolArenaMetric {
 
 ![](./images/netty内存池的布局与管理.jpg)
 
-# 9.Netty实战
+## 8.3.内存泄露检测
 
-## 9.1.ChannelHandler不要执行耗时操作
+netty中的内存泄露，其实指的是申请了ByteBuf，但是忘记释放了，即
 
-ChannelHandler的回调方法是由EventLoop唯一关联的线程Thread(即netty的I/O线程)调用的，因此若将长时间执行的耗时任务放到Handler回调方法中，它会阻塞该线程处理其它I/O事件，通常有两种实现方式：
+```java
+ByteBuf buf = ctx.alloc().buffer();
+
+// 缺少释放内存的操作, 下面二选一
+buffer.release();
+ReferenceCountUtil.release(buffer);
+```
+
+不管是申请堆外内存还是堆内内存（池化），其最终造成的后果就是OOM。netty内存泄露检测核心思路：引用计数（buffer.refCnt()）+ 弱引用（Weak reference），要明确一点，**netty只有在对象被GC后才能来判断该对象是否出现内存泄露**
+
+### 8.3.1.核心思路
+
+当netty分配ByteBuf时，即ByteBuf buffer = ctx.alloc().buffer()，它会做两件事：
+
+1. 将该ByteBuf的引用计数 + 1
+2. 定义一个弱引用对象（DefaultResourceLeak）加到list（#allLeaks）里
+
+而当显示调用释放方法时，即buffer.release()，它会将引用计数 - 1，一旦减到0就会自动释放资源操作，并将弱引用对象从list里面移除。
+
+**判断依据**：弱引用对象在不在list里面？若在，说明引用计数还没有到0，那么该对象没有执行释放；
+
+**判断时机**：弱引用指向对象被回收时，可以把弱引用放进指定ReferenceQueue里面，遍历这个queue拿出所有弱引用来判断！
+
+### 8.3.2.使用方式
+
+netty提供了一个工具类`io.netty.util.ResourceLeakDetector`用来帮使用者检测是否出现内存泄露。这个工具类的触发汇报时机在于：AbstractByteBufAllocator#buffer()方法会调用ResourceLeakDetector#track()方法，此时它就会做一次内存泄露的判断。
+
+**使用步骤**
+
+1. 加上JVM运行参数：-Dio.netty.leakDetection.level=PARANOID；
+2. 注意日志级别，至少要到error级别，netty才会打印泄露日志；
+3. GC后才可能检测到，因此要么降低JVM大小，要么不断地创建ByteBuf；
+
+# 9.【调优参数】
+
+## 9.1.系统参数
+
+netty支持的系统调优参数，主要是在ServerBootstrap这个类来设置，分为两种情况：
+
+- SockertChannel → ServerBootstrap.childOption()
+- ServerSocketChannel → ServerBootstrap.option()
+
+### 9.1.1.SocketChannel
+
+| Netty系统相关参数 | 功能                                                         | 默认值                                                       |
+| ----------------- | ------------------------------------------------------------ | ------------------------------------------------------------ |
+| SO_SNDBUF         | TCP数据发送缓冲区大小                                        | /proc/sys/net/ipv4/tcp_wmem：4K，os动态调整                  |
+| SO_RCVBUF         | TCP数据接收缓冲区大小                                        | /proc/sys/net/ipv4/tcp_rmem：4K，os动态调整                  |
+| SO_KEEPALIVE      | TCP层keepalive                                               | 默认关闭（一般会启动应用层的keepalive）                      |
+| SO_REUSEADDR      | 地址重用，解决“Address already in use”，常用开启场景：多网卡(IP)绑定相同端口；让关闭连接释放的端口更早可使用 | 默认关闭，需要注意：这个参数开启时并不是让TCP绑定完全相同IP + POST来重复启动 |
+| SO_LINGER         | 关闭Socket的延迟时间，默认关闭则Socket.close()方法会立即返回 | 默认关闭                                                     |
+| IP_TOS            | 设置IP头部的Type-of-Service字段，用于描述IP包的优先级和Qos选项，比如说倾向于延时还是吞吐量 | 1000-最小的延迟；0100-最大吞吐量；0010-最大可靠性；0001-最小传输成本；0000-正常服务，默认值 |
+| TCP_NODELAY       | 设置是否启用Nagle算法：用来将小的碎片数据连接成更大的报文来提供发送效率 | 默认关闭，如果需要发送一些较小的报文，则需要禁用此算法       |
+
+### 9.1.2.ServerSocketChannel
+
+| Netty系统相关参数 | 功能                                        | 备注                                                         |
+| ----------------- | ------------------------------------------- | ------------------------------------------------------------ |
+| SO_RCVBUF         | 为Acceptor创建的socket channel设置SO_RCVBUF | Acceptor创建好socket channel之后，其实就可以接受数据了，如果通过上面那种方式去设置，有可能数据已经传输了，此时设置就有点迟了。 |
+| SO_REUSEADDR      | 是否可以重用端口                            | 默认false                                                    |
+| SO_BACKLOG        | 最大的等待连接数量                          | netty在linux系统下，先尝试读 /proc/sys/net/core/somaxcon，再尝试"sysctl"，如果最终还没取到，就使用默认值128。当服务器负载过大，客户端请求就会被放置到队列，队列大小就由这个参数指定 |
+
+注意：SO_BACKLOG这个参数跟其他参数不一样，它的设置方式：
+
+```java
+javaChannel().bind(localAddress, config.getBacklog());
+```
+
+## 9.2.netty核心参数
+
+### 9.2.1.ChannelOption
+
+ChannelOption（非系统相关：共11个）
+
+| Netty参数                      | 功能                                                         | 默认值                                                       |
+| ------------------------------ | ------------------------------------------------------------ | ------------------------------------------------------------ |
+| WRITE_BUFFER_WATER_MARK        | 高低水位线，当写缓冲数据太多，就会将write设置成不可写，间接防止写数据OOM | 32K→64K，低水位到高水位默认值                                |
+| CONNECT_TIMEOUT_MILLIS         | 客户端连接服务器最大允许时间                                 | 30秒                                                         |
+| MAX_MESSAGE_PER_READ           | 最大允许”连续“读次数                                         | 16次                                                         |
+| WRITE_SPIN_COUNT               | 最大允许”连续“写次数                                         | 16次                                                         |
+| ALLOCATOR                      | ByeBuf分配器                                                 | ByteBufAllocator.DEFAULT，池化、堆外                         |
+| RCVBUF_ALLOCATOR               | 数据接收ByteBuf分配大小计算器 + 读次数控制器                 | AdaptiveRecvByteBufAllocator                                 |
+| AUTO_READ                      | 是否监听”读事件“                                             | 默认监听，设置此标记的方法也触发注册或移除读事件的监听       |
+| AUTO_CLOSE                     | ”写数据“失败，是否关闭连接                                   | 默认打开                                                     |
+| MESSAGE_SIZE_ESTIMATOR         | 数据（ByteBuf、FileRegion等）大小计算器                      | DefaultMessageSizeEstimator                                  |
+| SINGLE_EVENTEXECUTOR_PER_GROUP | 当增加一个handler且指定EventExecutorGroup时，决定这个handler是否只用EventExecutorGroup中的一个固定的EventExecutor（取决于next()实现） | 默认：true，这个handler不管是否共享，绑定上唯一一个eventexecutor，所以小名“pinEventExecutor”，没有指定EventExecutorGroup，复用channel的NioEventLoop |
+| ALLOW_HALF_CLOSURE             | 关闭连接时，允许半关                                         | 默认不允许。                                                 |
+
+**ALLOCATOR和RCVBUF_ALLOCATOR的功能关联？**
+
+ALLOCATOR负责ByteBuf怎么分配（例如：从哪里分配，是从堆内？还是从堆外？），而RCVBUF_ALLOCATOR负责计算为接收数据分配多少ByteBuf。其中RCVBUF_ALLOCATOR在netty中有两个实现，一个是固定大小的，一个是自适应的，即AdaptiveRecvByteBufAllocator，它有两个功能：
+
+- 动态计算下一次分配ByteBuf的大小，就是guess()方法；
+- 判断是否可以继续读数据，就是continueReading()方法；
+
+相应的代码如下：
+
+```java
+io.netty.channel.AdaptiveRecvByteBufAllocator.HandlerImpl handler = AdaptiveRecvByteBufAllocator.newHandle();
+ByetBuf byteBuf = handle.allocate(ByteBufAllocator);
+
+// 其中handle.allocate的方法实现为
+ByteBuf allocate(ByteBufAllocator alloc){
+    // 通过guess()计算下次要分配缓冲区的大小，再交由ByteBufAllocator具体分配
+    return alloc.ioBuffer(guess());
+}
+```
+
+### 9.2.2.SystemProperty
+
+系统参数，配置方式为：-Dio.netty.xxx，从功能上可以细分为三类：
+
+- 多种实现的切换：-Dio.netty.noJdkZlibDecoder
+- 参数的调优：-Dio.netty.eventLoopThreads
+- 功能的开启关闭：-Dio.netty.noKeySetOptimization
+
+系统参数比较多，这边慢慢来记录吧
+
+| Netty参数                                                    | 功能                     | 备注                                                         |
+| ------------------------------------------------------------ | ------------------------ | ------------------------------------------------------------ |
+| io.netty.eventLoopThreads                                    | IO Thread数量            | 默认：avaliableProcessors * 2                                |
+| io.netty.avaliableProcessors                                 | 指定avaliableProcessros  | 考虑 docker / VM等情况                                       |
+| io.netty.allocator.type                                      | unpooled/pooled          | 池化还是非池化                                               |
+| io.netty.noPreferDirect                                      | true/false               | 堆内还是堆外                                                 |
+| io.netty.noUnsafe                                            | true/false               | 是否使用sum.misc.Unsafe                                      |
+| io.netty.leakDetection.level                                 | DISABLED/SIMPLE等        | 内存泄露检测级别，默认SIMPLE                                 |
+| io.netty.native.workdir<br />io.netty.tmpdir                 | 临时目录                 | 从jar中解出native库存放的临时目录                            |
+| io.netty.processId<br />io.netty.machineId                   | 进程号<br />机器硬件地址 | 计算channel的ID：MACHINE_ID + PROCESS_ID + SEQUENCE + TIMESTAMP + RANDOM |
+| io.netty.eventLoop.maxPendingTasks<br />io.netty.eventexecutor.maxPendingTasks | 存放的task最大数目       | 默认Integer.MAX_VALUE，手动设置时不低于16                    |
+| io.netty.handler.ssl.noOpenSsl                               | 关闭open ssl使用         | 优选open ssl                                                 |
+
+# 10.【Netty实战】
+
+## 10.1.业务处理
+
+### 10.1.1.耗时操作
+
+ChannelHandler中的方法是由EventLoop的线程回调的，而EventLoop是属于I/O线程，它需要处理读写事件。若将执行耗时的业务逻辑放到ChannelHandler中，则会影响EventLoop处理其它I/O事件。针对这个问题有两种解决方式：
 
 1. ChannelHandler定义业务线程池，执行异步调用；
 
-2. 借助于netty提供的想ChannelPipeline添加ChannelHandler时调用的addList()方法来传递EventExecutor。方法如下：
+2. ChannelPipeline添加ChannelHandler时，为其指定一个EventExecutor，比如说netty提供的`UnorderedThreadPoolEventExecutor`
 
-```java
-/**
- * @param group 用来执行ChannelHandler中的方法
- * @param handlers  the handlers to insert last
- */
-ChannelPipeline addLast(EventExecutorGroup group, ChannelHandler... handlers);
-```
+   ```java
+   /**
+    * @param group 用来执行ChannelHandler中的方法
+    * @param handlers  the handlers to insert last
+    */
+   ChannelPipeline addLast(EventExecutorGroup group, ChannelHandler... handlers);
+   ```
 
-## 9.2.写数据
+### 10.1.2.写回数据
 
 netty写数据到对端，有三种方式：
 
 - write：写到一个buffer里
 - flush：将buffer的数据发送出去
-- writeAndFlush：写到buffer中，并且立马发送。write和flush之间存在ChannelOutBoundBuffer
+- writeAndFlush：写到buffer中，并且立马发送，write和flush之间存在ChannelOutBoundBuffer
 
 将数据写回到通道对端，可以直接由ChannelHandlerContext写回，也可以通过它获取到Channel写回，即：
 
 ```java
-// 通过Channel写回数据
+// 通过Channel写回数据, 数据从ChannelPipeline的TailContext链表末尾开始传递直至底层Socket
 ctx.channel().writeAndFlush();
 
-// 通过ChannelHandlerContext写回数据
+// 通过ChannelHandlerContext写回数据, 数据从ChannelPipeline的当前Context开始写入. 对于
+// 与Channel的同名方法来说，ChannelHandlerContext的方法将会产生更短的事件流，所以在可能的情况下
+// 利用它提升应用性能
 ctx.writeAndFlush();
 ```
 
-这两种方式是有区别的：
+### 10.1.3.增强写
 
-1. Channel：数据从ChannelPipeline的TailContext链表末尾开始传递直至底层Socket；
+使用writeAndFlush()写回数据，优点是延迟较小，对端立马就可以收到响应；缺点是吞吐量低，每次调用都需要通过socket发送网络包。所以实际运用中，要结合具体业务来考虑处理延迟还是提高吞吐量。对于这种情况，有两种方式可以来解决：
 
-2. ChannelHandlerContext：数据从ChannelPipeline的当前Context开始写入；
+- **利用channelReadComplete()来实现**
 
-对于与Channel的同名方法来说，ChannelHandlerContext的方法将会产生更短的事件流，所以可以在可能的情况下利用它提升应用性能；
+  ```java
+  public class EchoServerHandler extends ChannelInboundHandlerAdapter {
+  
+      @Override
+      public void channelRead(ChannelHandlerContext ctx, Object msg) {
+          // 每次读到一笔数据, 就只调用write()
+          ctx.write(msg);
+      }
+  
+      @Override
+      public void channelReadComplete(ChannelHandlerContext ctx) {
+          // 等到完全读完, 才调用flush()
+          ctx.flush();
+      }
+  }    
+  ```
 
-## 9.3.TCP粘包/拆包
+  但是这种解决方式有一个问题，那就是只适合在同步调用中，一旦我们的handler定义了异步线程池，那么有可能在调用channelReadComplete()方法后，才调用channelRead()，那就会造成数据错乱。所以channelHandler异步调用不适用于这种方式
 
-拆包：一个完整的数据包可能会被TCP拆分为多个包进行发送；
+- **使用FlushConsolidationHandler来处理**
 
-粘包：多个小的数据包可能被封装成一个大的包进行发送，有人称为半包；
+  FlushConsolidationHandler是netty提供的用来增强写 （即减少flush）的处理器，它的原理主要就是读达到一定次数后，再执行flush逻辑。适用于业务同步或异步两种，用法如下：
 
-### 9.3.1.产生原因
+  ```java
+  // 5表示每次读满5次以后再执行flush, true的含义是对独立异步线程池也做增强, 如果这个参数设置为
+  // false. 那么netty对于开启业务异步线程的, 就只会直接刷新.
+  ctx.pipeline().addLast("flushExchanger", new FlushConsolidationHandler(5, true))
+  ```
 
-在计算机科学中，bit是表示信息的最小单位，叫做二进制位，一般用0和1表示；而byte叫做字节，由8个位（8bit）组成。他们之间的区别如下：
+## 10.2.TCP粘包/半包
 
-1. bit
-   - 计算机中的最小存储单元  - 存储内容总是0或1
-   - 所有二进制状态实体都能使用1bit表示  - 8bits组成1byte
-   - 不能够单独寻址
+粘包：多个小的TCP数据包会被组装成一个大的TCP数据包，然后才进行网络传递；
 
-2. byte
+半包：一个完整的TCP数据包会被拆分成多个数据包发送；
 
-   - 1byte包含8bits  
-- 可以存储所有ASCII所有字符（这是它包  含8bits的初衷）  
-   - 十进制整数范围[-128,127]或[0,  255]  
-- 最小的可寻址存储单元
-
-因此在Java中给一个byte类型数据初始化时，可以用字符，也可以用整数，但是这个整数必须要在-128和127之间（因为byte是8位），它会将这个数转化为一个字符然后存放起来！作为面向字节(byte)流的网络传输协议-TCP，所谓流，就是没有界限的一串数据。且由于TCP是全双工通信协议，因此TCP连接的两端，都会设置发送缓冲区和接收缓冲区，用来临时存放双向通信的数据。其根本原因是因为 TCP 是基于字节流来传输数据的，数据包相互之间没有边界，导致接收方无法准确的分辨出每一个单独的数据包。
+### 10.2.1.产生原因
 
 **产生粘包的原因：**
 
-- 发送方写入的数据，小于套接字缓冲区的大小；网卡会将程序多次写入的数据一起发送到网络上
-- 接收方不及时读取套接字缓冲区数据，在下一次读取中就会获取到多个数据包
+- 发送方写入的数据，小于套接字缓冲区的大小，网卡会将程序多次写入的数据一起发送到网络上；
+- 接收方不及时读取套接字缓冲区数据，在下一次读取中就会获取到多个数据包；
 
-**产生拆包的原因：**
+**产生半包的原因：**
 
-- 发送方写入的数据，大于套接字缓冲区大小；网卡会对其进行拆分，发送到网络上
-- 发送的数据大于协议的MTU（最大传输单元），就一定会拆包
+- 发送方写入的数据，大于套接字缓冲区大小，网卡会对其进行拆分，发送到网络上；
+- 发送的数据大于协议的MTU（最大传输单元），就一定会拆包；
 
-注意：UDP就像邮寄的包裹，虽然一次运输多个，但每个包裹都有分界线，对端会一个一个签收，所以不会有粘包和拆包的问题
+究其原因，**TCP是流式协议（面向字节流），消息之间无边界**。相反地，UDP就像邮寄的包裹，虽然一次运输多个，但每个包裹都有分界线，对端会一个一个签收，所以不会有粘包和半包的问题
 
-### 9.3.2.图解流程
+### 10.2.2.图解流程
 
 1. 一个正常的TCP报文传输是这样子，client将消息Msg1，Msg2依次发给server，而且server也是按照这样子的顺序接收到两个消息：
 
@@ -1011,25 +1170,25 @@ ctx.writeAndFlush();
 
 注：这上面所说的消息（即Msg1、Msg2）都是一串一串的字节流
 
-### 9.3.3.解决方案
+### 10.2.3.解决方案
 
 这边记录下[网络博客](http://www.ideawu.net/blog/archives/993.html)介绍的一个伪代码实例：
 
 ```java
 char recv_buf[];
 Buffer buffer;
-// 网络循环：必须在一个循环中读取网络，因为网络数据是源源不断的。
-while(1){
-    // 从TCP流中读取不定长度的一段流数据，不能保证读到的数据是你期望的长度
+// 网络循环：必须在一个循环中读取网络，因为网络数据是源源不断的
+while(true){
+    // 从TCP流中读取不定长度的一段流数据，不能保证读到的数据是期望的长度
     tcp.read(recv_buf);
     // 将这段流数据和之前收到的流数据拼接到一起
     buffer.append(recv_buf);
     // 解析循环：必须在一个循环中解析报文，避免所谓的粘包
-    while(1){
+    while(true){
         // 尝试解析报文
         msg = parse(buffer);
         if(!msg){
-            // 报文还没有准备好，糟糕，我们遇到拆包了！跳出解析循环，继续读网络。
+            // 报文还没有准备好，说明遇到半包了！跳出解析循环，继续读网络
             break;
         }
         // 将解析过的报文对应的流数据清除
@@ -1040,45 +1199,56 @@ while(1){
 }
 ```
 
-它实际上就是想表达，网络传输的数据是不断地发送过来，而已这数据都是字节流，里面掺杂了由于粘包/拆包导致的其它消息数据，所以才需要两个循环：网络循环和解析循环。其实，解决TCP粘包/拆包问题的根本手段：**就是找出消息的边界**，常用的解决方案有两种：
+它实际上就是想表达，网络传输的数据是不断地发送过来，而已这数据都是字节流，里面掺杂了由于粘包/半包导致的其它消息数据，所以才需要两个循环：网络循环和解析循环。实际上，解决TCP粘包/半包问题的根本手段：**找出消息的边界**。常用的解决方案有三种，就是将消息逻辑封装成帧(Frame)：
 
 | 方法                       | 寻找消息边界                               | 优点                 | 缺点                                           |
 | -------------------------- | ------------------------------------------ | -------------------- | ---------------------------------------------- |
+| 固定长度                   | 满足固定长度即可                           | 简单                 | 空间浪费                                       |
 | 分隔符                     | 分隔符之间                                 | 不浪费空间，比较简单 | 内容本身出现分隔符时需要转义，所以需要扫描内容 |
 | 固定长度字段保存内容的长度 | 先解析固定长度的字段的值，然后读取后续内容 | 精确定义数据长度     | 长度理论上有限制，需提前预知可能的最大长度     |
 
-在netty中，它提供了3个解码器，可以有效地解决TCP粘包/拆包问题：
+在netty中提供了3个解码器，可以有效地解决TCP粘包/半包问题：
 
-| **组件**                   | **结果**                                                     |
-| -------------------------- | ------------------------------------------------------------ |
-| LineBasedFrameDecoder      | 基于换行符解决，即传输完一个消息以  \r\n作为结尾；           |
-| DelimiterBasedFrameDecoder | 基于分隔符解决，指定一个分隔符作为消息结尾                   |
-| FixedLengthFrameDecoder    | 指定长度解决。指定消息头和消息体，消息头的值就是消息体的数据大小 |
-| 无组件                     | 自定义协议，即规定消息如何划分个体，例如dubbo，自定义数据传输协议，然后client和server按照这个协议将字节流转换成消息。 |
+| **组件**                     | **结果**                                                     |
+| ---------------------------- | ------------------------------------------------------------ |
+| FixedLengthFrameDecoder      | 每次以固定长度去解码                                         |
+| DelimiterBasedFrameDecoder   | 基于分隔符解决，指定一个分隔符作为消息结尾                   |
+| LengthFieldBasedFrameDecoder | 固定长度字段保存内容的长度信息，对应的编码器为：LengthFieldPrepender |
+| 无组件                       | 自定义协议，即规定消息如何划分个体，例如dubbo，自定义数据传输协议，然后client和server按照这个协议将字节流转换成消息。 |
 
-## 9.4.keepalive和idle
+## 10.3.心跳机制
 
-idle检测，只是负责诊断，诊断后作出不同的行为，一般用来配合keepalive，减少keepalive消息。有数据传输时，不会发送keepalive消息；无数据传输超过一定时间，判定为idle，再发keepalive消息
+netty的心跳机制有两个概念：idle和keepalive。idle表示监视，检测channel是否有读写事件，一旦监测出指定时间未读或者未写，就会作出不同的处理行为，一般会搭配keepalibe使用；keepalive发生在idle监测之后，一般通过请求包来判断对端是否存活。
 
-### 9.4.1.传输层
+### 10.3.1.keepalive
 
-keeplive是保证TCP通信双方不会因为某一方未响应的原因而久久等待，但是这种情况出现的概率小，所以没有必要做频繁的检测（浪费网络带宽）。TCO keeplive核心参数如下：
+keepalive在实际运用中一般是某一类请求，用来保证TCP通信双方不会因为某一方未响应的原因而久久等待。keepalive在传输层和应用层都有不同的实现：
 
-- net.ipv4.tcp_keepalive_time=7200 ，对端7200s未传递数据时对其检测是否存活
-- net.ipv4.tcp_keepalive_intvl=75 ，下一个探测的间隔时间，结合下面参数使用
-- net.ipv4.tcp_keepalive_probes=9 ， 一共发送几个探测报文
+- **传输层**
 
-当启用（默认关闭）keepalive时，TCP在连接没有数据通过的7200秒后发送keepalive消息，当探测到对端没有响应后，按75秒的重试频率重发，一直发9个探测包都没有响应，它就会将连接断开。所以一共耗时为：2小时11分钟（7200秒 + 75 * 9）
+  TCP协议自带keepalive，通过命令`sysctl -a | grep tcp_keepalive`可以查看相应配置。TCP keepalive主要有三个核心参数：
 
-### 9.4.2.应用层
+  - net.ipv4.tcp_keepalive_time=7200 ，对端7200s未传递数据时对其检测是否存活
+  - net.ipv4.tcp_keepalive_intvl=75 ，下一个探测的间隔时间，结合下面参数使用
+  - net.ipv4.tcp_keepalive_probes=9 ， 一共发送几个探测报文
 
-其实，虽然有了传输层的keepalive，大部分情况下应用层也会使用keepalive，这是因为：
+  首先要明确，网络连接出现问题的概率比较小，所以没必要频繁地检测。再者，网络应用中，网络抖动比较常见，判断对端失联不能过于“武断”。最后，TCP协议默认是关闭keepalive的，开启的时候，TCP在连接没有数据通过的7200秒后会发送keepalive消息，当探测到对端没有响应后，按75秒的重试频率重发，一直发9个探测包都没有响应，它就会将连接断开。所以一共耗时为：2小时11分钟（7200秒 + 75 * 9）
 
-- 协议分层，各层关注点不同
-- TCP层的keepalive默认关闭，且经过路由等中转设备时keepalive包可能会被丢弃
-- TCP层的keepalive时间太长，默认 > 2小时，虽然可以改变，但是属于系统参数，会影响所有应用
+- **应用层**
 
-## 9.5.高性能实现细节
+  虽然TCP协议默认支持keepalive，但是实际网络应用中，应用层自己都会做keepalive。主要是因为：
+
+  1. 协议分层，各层关注点不同：传输层关注是否“通”，应用层关注是否可以服务；
+  2. TCP层的keepalive默认关闭，并且经过路由等中转设备时keepalive包可能会被丢弃；
+  3. TCP层的keepalive时间太长，默认 > 2小时，虽然可以改变，但是属于系统参数，会影响所有应用
+
+  比如常见的HTTP协议，它属于应用层协议，但是经常会看到请求头带有“HTTP Keep-Alive”，这是因为在早期HTTP协议中，如果指定请求头“Connection:Close”表示使用短连接，一次HTTP请求后就会断开TCP连接；如果指定请求头“Connetion: Keep-Alive”表示使用长连接，一次HTTP请求后不会断开TCP连接，不过现在大部分都是使用HTTP 1.1协议，它默认就是长连接，所以可以不用指定这个参数
+
+### 10.3.2.idle
+
+idle检测，只是负责诊断，诊断后作出不同的行为，一般用来配合keepalive，减少keepalive消息。有数据传输时，不会发送keepalive消息；无数据传输超过一定时间，判定为idle，再发keepalive消息。一旦判断为空闲连接，服务端就可以直接关闭连接。
+
+## 10.4.高性能实现细节
 
 - 对锁的优化
 

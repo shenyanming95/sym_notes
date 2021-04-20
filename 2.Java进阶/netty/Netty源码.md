@@ -1588,39 +1588,43 @@ private synchronized void checkNotifyWaiters() {
 }
 ```
 
-# 2.源码：I/O交互
+# 2.源码：构建连接
 
-经过对[启动服务端](#1.源码：启动服务端)源代码的分析，确定了事件循环实现为：io.netty.channel.nio.NioEventLoop，它继承了抽象父类io.netty.util.concurrent.SingleThreadEventExecutor，而父类提供了实现了execute()方法。回忆一下是否存在这样的代码：Channel.eventLoop().execute()即利用通道channel的事件循环提交一个任务，它实际就是调用SingleThreadEventExecutor.execute()。这实际就是nio的Selector执行I/O多路复用和处理SelectionKey的起点。
+当netty server启动成功后，它就会监听绑定的接口，等待client发起连接。当有请求到达时，netty就会为其构建一个连接，即Channel对象，其大致流程如下：
 
-```java
-// 源码：SingleThreadEventExecutor - 736行
-public void execute(Runnable task) {
-  if (task == null) {
-    throw new NullPointerException("task");
-  }
-  boolean inEventLoop = inEventLoop();
-  if (inEventLoop) {
-    addTask(task);
-  } else {
-    startThread();
-    addTask(task);
-    if (isShutdown() && removeTask(task)) {
-      reject();
-    }
-  }
+- Boss Thread
+  - NioEventLoop中的selector轮询创建连接事件，即OP_ACCEPT；
+  - 创建socket channel；
+  - 初始化socket chanel并为其从worker group中选择一个NioEventLoop；
 
-  if (!addTaskWakesUp && wakesUpForTask(task)) {
-    wakeup(inEventLoop);
-  }
-}
-```
+- Worker Thread
+  - 将socket channel注册到选择的NioEventLoop中的Selector；
+  - 为socket channel注册读事件，即OP_READ；
 
-## 2.1.startThread()
+# 3.源码：读取数据
 
-....
+数据读写事件就只存在于Work Thread中，大致流程如下：
 
-## 2.2.run()
+- NioEventLoop中的Selector接收到OP_READ事件
+- 处理OP_READ事件，起点在NioSocketChannel.NioSocketChannelUnsafe#read()
+  - 分配一个初始1024字节的byte buffer接收数据；
+  - 从Channel读取数据到byte buffer中；
+  - 记录实际接受数据大小，用来调整下次分配byte buffer大小；
+  - 触发pipeline.fireChannelRead(byteBuf)，将读取到的数据传播出去；
+  - 判断分配的byte buffer是否被装满：是-尝试继续读取直到没有数据或者满216次；否-结束本轮读取，等待下次OP_READ事件
 
-....
+# 4.源码：写回数据
 
-# 3.源码：内存分配
+netty写数据有三种方式：
+
+1. write，将数据写到一个buffer；
+2. flush，将buffer内的数据发送出去
+3. writeAndFlush，将数据写到buffer，同时立马发送出去
+
+即：write和flush之间存在一个ChannelOutboundBuffer，netty写数据有四个要点：
+
+- netty写数据，一旦TCP对端接收数据较慢时，写缓冲（即ChannelOutboundBuffer）内的数据就会占用空间导致写不进去，此时netty就会停止写，然后注册一个OP_WRITE事件，以便通知什么时候可以写进去再去写
+- netty批量写数据时，如果想写回的数据都已经写到buffer中，那么它接下来会尝试写更多的数据（maxBytesPerGatheringWrite）
+
+- netty只要有数据要写，而且可以写的出去，那么会一直尝试直到写不出去或者满16次（writeSpinCount）
+- netty待写数据太多，超过一定的水位线（writeBufferWaterMark.high()），会将可写的标志改为false，让应用端自己来做决定要不要继续发送数据

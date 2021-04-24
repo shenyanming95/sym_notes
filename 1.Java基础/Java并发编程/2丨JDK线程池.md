@@ -237,16 +237,6 @@ Executor接口中只定义了一个方法execute()，该方法接收一个Runabl
 
 ```java
 public interface Executor {
-    /**
-     * Executes the given command at some time in the future.  The command
-     * may execute in a new thread, in a pooled thread, or in the calling
-     * thread, at the discretion of the {@code Executor} implementation.
-     *
-     * @param command the runnable task
-     * @throws RejectedExecutionException if this task cannot be
-     * accepted for execution
-     * @throws NullPointerException if command is null
-     */
     void execute(Runnable command);
 }
 ```
@@ -454,7 +444,7 @@ public ScheduledThreadPoolExecutor(int corePoolSize) {
    - IO密集型任务线程并不是一直在执行任务（大多数情况线程都处于阻塞状态），则应配置尽可能多的线程，如2*Ncpu。Java获取CPU个数方式：Runtime.getRuntime().availableProcessors()
 2. **任务的优先级：高、中和低**
    - 优先级不同的任务可以使用优先级队列PriorityBlockingQueue来处理。它可以让优先级高的任务先执行
-3. 任务的执行时间：长或短
+3. **任务的执行时间：长或短**
    - 执行时间不同的任务可以交给不同规模的线程池来处理，或者可以使用优先级队列，让执行时间短的任务先执行
 4. **任务的依赖性：是否依赖于其它系统资源，例如数据库连接**
    - 依赖数据库连接池的任务，因为线程提交SQL后需要等待数据库返回结果，等待的时间越长，则CPU空闲时间就越长，那么线程数应该设置得越大，这样才能更好地利用CPU！
@@ -627,8 +617,7 @@ class Worker extends AbstractQueuedSynchronizer implements Runnable{
     // 构造方法接受一个Runnable对象, 它即是Worker的初始任务;
     Worker(Runnable firstTask) {
 
-        // 因为Worker集成了AQS以支持并发, AQS底层靠着state表示许可数, 
-        // 这里将其赋值为-1
+        // 因为Worker集成了AQS以支持并发, AQS底层靠着state表示许可数, 这里将其赋值为-1
         setState(-1);
 
         // 赋值初始化任务
@@ -689,7 +678,7 @@ public void execute(Runnable command) {
           reject(command);
         } else if (workerCountOf(recheck) == 0){
           // 若是运行的Worker数量等于0, 创建非核心线程, 其初始任务为null.
-        // 这块代码的真正意图是：担心任务提交到队列中了, 但是线程都关闭了
+          // 这块代码的真正意图是：担心任务提交到队列中了, 但是线程都关闭了
           addWorker(null, false);
         }
 			
@@ -770,7 +759,7 @@ private boolean addWorker(Runnable firstTask, boolean core) {
                 int rs = runStateOf(ctl.get());
 			 	// 小于 SHUTTDOWN 那就是 RUNNING, 即线程池正常运行中; 如果等于 SHUTDOWN, 
                 // 则不接受新的任务(所以判断firstTask是否为null), 但仍会执行等待队列中的任务.
-            if (rs < *SHUTDOWN* || (rs == SHUTDOWN && firstTask == null)) {
+            if (rs < SHUTDOWN || (rs == SHUTDOWN && firstTask == null)) {
                   // 检测Worker中的线程Thread是否已经启动, 这里不允许它启动
 				  if (t.isAlive())
 						throw new IllegalThreadStateException();

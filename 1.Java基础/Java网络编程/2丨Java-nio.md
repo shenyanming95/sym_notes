@@ -1,8 +1,18 @@
 # 1.NIO简介
 
-java nio，也称New IO 或者 Non Blocking IO，是从java 1.4版本开始引入的一个新的IO API，可以替代标准的java io API。NIO与原来的IO有着同样的作用和目的，但是使用的方式完全不同：NIO支持面向缓冲区、基于通道的IO操作，它以更加高效的方式进行文件的读写。
+在java中有三种经典的I/O模式，分别是BIO(阻塞I/O)、NIO(非阻塞I/O)、AIO(异步I/O)，如果以现实生活来举例：
 
-![](./images/nio与bio的区别.png)
+- BIO：好比食堂排队打饭，没打到菜就会在原地等待食堂阿姨，后一个同学要等待前一个同学（JDK1.4前）
+- NIO：好比点单取号等待，前台点完菜以后等待服务员通知菜已做好，然后自己再去前台端菜（JDK1.4）
+- AIO：好比包厢吃饭，点完菜等待服务员直接将饭菜送来，而不用自己去前台端菜（JDK1.7）
+
+这里主要讲NIO，java nio，也称New IO 或者 Non Blocking IO，是从java 1.4版本开始引入的一个新的IO API，可以替代标准的java io API。NIO与原来的IO有着同样的作用和目的，但是使用的方式完全不同：NIO支持面向缓冲区、基于通道的IO操作，它以更加高效的方式进行文件的读写。
+
+| IO                        | NIO                           |
+| ------------------------- | ----------------------------- |
+| 面向流（Stream Oriented） | 面向缓冲区（Buffer Oriented） |
+| 阻塞IO（Blocking IO）     | 非阻塞IO（Non Blocking IO）   |
+| 无                        | 选择器（Selectorss）          |
 
 ## 1.1.bio示意图
 

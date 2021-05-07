@@ -13,8 +13,8 @@ Kafka 是消息引擎系统，也是分布式流处理平台。
 - **Partition offset**：每条消息都有一个当前Partition下唯一的64字节的offset，它指明了这条消息的起始位置
 - **Replicas of partition**：分区副本，每个分区partition下可以配置若干个副本，其中只能有 1 个领导者副本和 N-1 个追随者副本。追随者副本不会被消费者消费，它只用于防止数据丢失，即消费者不从为follower的partition中消费数据，而是从leader的partition中读取数据。副本之间是一主多从的关系
 - **Broker**：kafka集群包含一个或多个服务器，服务器节点称为broker。broker存储topic的数据，如果某topic有N个partition，集群有N个broker，那么每个broker储存该topic的一个partition。如果某topic有N个partition，集群有（N+M）个broker，那么其中有N个broker储存该topic的一个partition，剩下的M歌broker不存储该topic的partition数据。如果某topic有N个partition，集群中broker数目少于N个，那么一个broker存储该topic的一个或多个partition。在实际生产环境中，尽量避免这种情况的发生，这种情况容易导致kafka集群数据不均衡
-- **Leader**：每个partition有多个副本，其中有且仅有一个作为Leader，Leader是当前负责数据的读写的partition
-- **Follower**：Follower跟随Leader，所有写请求都通过Leader路由，数据变更会黄渤给所有Follower，Follower与Leader保持数据同步。如果Leader失效，则从Follower中选举出一个新的Leader。当前Follower与Leader挂掉、卡主或者同步太慢，leader会把这个Follower从“in sync replicas”（ISR）列表中删除，重新创建一个Follower
+- **Leader**：每个partition有多个副本，其中有且仅有一个作为Leader，Leader是当前负责数据读写的partition
+- **Follower**：Follower跟随Leader，所有写请求都通过Leader路由，数据变更会同步给所有Follower，Follower与Leader保持数据同步。如果Leader失效，则从Follower中选举出一个新的Leader。当前Follower与Leader挂掉、卡主或者同步太慢，leader会把这个Follower从“in sync replicas”（ISR）列表中删除，重新创建一个Follower
 - **Zookeeper**：Zookeeper负责维护和协调broker。当kafka系统中新增了broker或者某个Broker发生故障失效时，由zookeeper通知生产者和消费者。生产者和消费者依据zookeeper的broker状态信息与broker协调数据的发布和订阅任务
 - **AR**（Assigned Replicas）：分区partition中所有的副本统称为AR
 - **ISR**（In Sync Replicas）：所有于Leader部分保持一定程度的副本组成ISR

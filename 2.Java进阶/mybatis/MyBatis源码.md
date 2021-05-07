@@ -215,7 +215,7 @@ private void mapperElement(XNode parent) throws Exception {
           String url = child.getStringAttribute("url");
           String mapperClass = child.getStringAttribute("class");
           if (resource != null && url == null && mapperClass == null) {
-            // 如果配置的是resource属性, 即配置了*mapper.xml, 则根据它指定的路径生成一个
+            // 如果配置的是resource属性, 即配置了mapper.xml, 则根据它指定的路径生成一个
             // XMLMapperBuilder去解析
             ErrorContext.instance().resource(resource);
             InputStream inputStream = Resources.getResourceAsStream(resource);

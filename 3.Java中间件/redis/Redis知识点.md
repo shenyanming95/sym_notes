@@ -1009,27 +1009,52 @@ master和slave都各自维护一个复制偏移量，master每次同步给slave�
 
 # 8.哨兵模式
 
-redis的[主从复制](#8.主从复制)，当主服务器宕机后，群龙无首，需要人为地将从服务器晋升为主服务器。也就是说：单单的主从复制，在发生故障时，没有办法自行故障转移。所以，在实际生产运用中，主从复制往往和哨兵模式结合在一起，使用哨兵模式Sentinel管理多个redis服务实例。Redis Sentinel是一个分布式系统，可以在一个架构中运行多个Sentinel进程，编译后产生redis-sentinel程序文件。
+单纯的redis主从复制，master宕机无法自行故障转移，因此在生产环境中redis主从往往和哨兵结合在一起。redis sentinel本身是一个高可用的分布式架构，它主要有以下功能：
+
+- 集群监控：负责监控redis master和slave进程是否正常工作；
+- 消息通知：如果某个redis实例有故障，由哨兵发送消息作为报警告知管理人员；
+- 故障转移：若master宕机，会自动将slave提升为新的master；
+- 配置中心：如果故障转移发生了，告知redis client新的master地址；
 
 ## 8.1.sentinel原理
+
+### 8.1.1.基本概念
+
+**redis-sentinel有2个核心参数：quorum和majority**
+
+- quorum：需要quorum数量的哨兵认为一个master客观宕机（odown）了，才可以对其进行故障转移；
+- majority：master宕机后，选举出来的哨兵需要得到majority数量的哨兵授权，才能正式进行故障转移；
+
+**redis-sentinel有2种认证宕机的机制：**
+
+- sdown：主观宕机，如果一个哨兵ping一个master，超过了`is-master-down-after-milliseconds`指定时间，就认定它宕机；
+- odown：客观宕机，如果一个哨兵在指定时间内，收到quorum数量的其它哨兵认定一个master宕机，那么就认定它宕机；
+
+**slave → master选举算法：**
+
+如果slave 跟 master 断开连接的时间已经超过了 `down-after-milliseconds` 的 10 倍，外加 master 宕机的时长，那么 slave 就被认为不适合选举为 master。符合条件的slave，redis-sentinel会对其进行排序：
+
+- 按照 slave 优先级进行排序，slave priority 越低，优先级就越高；
+- 如果 slave priority 相同，那么看 replica offset，哪个 slave 复制了越多的数据，offset 越靠后，优先级就越高；
+- 上面两个条件都相同，那么选择一个 run id 比较小的那个 slave
+
+### 8.1.2.自动发现机制
 
 哨兵Sentinel是分布式架构，是为了防止当单个Sentinel服务器宕机而使整个监控系统崩溃。监控同一个Master的Sentinel会自动连接，组成一个分布式的Sentinel网络，相互通信并且交换彼此对Master的监控信息，如下所示：
 
 <img src="./images/哨兵模式.png" style="zoom:67%;" />
 
-**工作过程：**
+哨兵互相之间的发现，是通过redis订阅发布的 `pub/sub`系统实现：哨兵都会向 `__sentinel__:hello` 这个 channel 里发送一个消息，用于对外暴露自己，从而让哨兵之间相互感知。每隔两秒钟，每个哨兵都会往自己监控的某个 master+slaves 对应的 `__sentinel__:hello` channel 里**发送一个消息**，内容是自己的 host、ip 和 runid 还有对这个 master 的监控配置。每个哨兵也会去**监听**自己监控的每个 master+slaves 对应的 `__sentinel__:hello` channel，然后去感知到同样在监听这个 master+slaves 的其他哨兵的存在。每个哨兵还会跟其他哨兵交换对 `master` 的监控配置，互相进行监控配置的同步
 
-Sentinel会不断检查Master和它的slave是否正常，当一个Sentinel监控到有个服务器下线(出故障了)，它会向哨兵网络的其他Sentinel进行确认，判断该服务器是否真的下线(出故障了)；如果下线的服务器是master服务器，Sentinel网络会对下线master服务器进行自动故障转移：将该master服务器旗下的某个slave服务器提升为新的master服务器，并且在其他slave服务器中设置新的master服务器。(若下线的服务器重新上线，它将变为slave服务器，请求复制新选举的master)
+### 8.1.3.配置传播
 
-**注意：**
+每次执行故障转移的哨兵，都会从新的master（即原先是slave → master）得到一个 configuration epoch，实际上是一个version（版本号），每次执行故障转移的版本号都是唯一。哨兵完成切换之后，先在自己本地更新生成最新的 master 配置，然后同步给其他的哨兵，就是通过 `pub/sub` 消息机制：各种消息通过channel发布和监听，其它哨兵根据版本号的大小去更新自己的master配置。
 
-Sentinel在选举新的slave节点为master节点时，会修改所有相关节点的配置文件redis.conf，包括哨兵自己的配置文件sentinel.conf
+## 8.2.sentinel配置
 
-## 8.2.配置sentinel.conf
+### 8.2.1.sentinel.conf
 
-启动一个哨兵Sentinel需要sentibel.conf，该配置文件可以在redis的源码包找到。当启动了多个哨兵sentinel，监听相同master的sentinel就会自动组成一个哨兵网络。一个哨兵网络内的sentinel，它们的配置文件sentibel.conf，除了端口号不一样外，其它属性基本一致。
-
-**常用属性配置：**
+启动哨兵Sentinel需要sentibel.conf，该配置文件可以在redis的源码包找到。当启动了多个哨兵sentinel，监听相同master的sentinel就会自动组成一个哨兵网络。一个哨兵网络内的sentinel，它们的配置文件sentibel.conf，除了端口号不一样外，其它属性基本一致。
 
 ```reStructuredText
 ## Sentinel节点启动时占用的端口(默认是26379)
@@ -1059,7 +1084,7 @@ sentinel failover-timeout mymaster 180000
 sentinel auth-pass mymaster root
 ```
 
-## 8.3.启动sentinel
+### 8.2.2.启动sentinel
 
 配置好sentinel.conf以后，就可以启动一个哨兵实例，有两种方式启动：
 
@@ -1085,39 +1110,72 @@ redis-sentinel < sentinel.conf路径>
 redis-sentinel /usr/redis/sentinel.conf
  ```
 
-启动并且监听成功的信息：
-
-![](./images/redis哨兵模式启动.png)
-
 # 9.集群模式
 
-为什么使用集群？就算使用“主从复制+哨兵”，redis每个实例也是**全量存储**，每个redis存储的内容都是完整的数据，浪费内存且有木桶效应。为了最大化利用内存，可以采用集群，就是分布式存储。集群内的redis节点**分量存储**，各自承担一部分数据。这是集群与主从+哨兵最显著的区别！部署redis集群可以有两种方式： twemProxy模式和redis-cluster模式
+redis【主从+哨兵】，每个redis实例都是全量存储（存储的是完整的数据），浪费内存并且存在木桶效应。为了最大化利用内存，可以通过分布式存储，集群内的redis节点分量存储（各自承担部分数据）
 
-## 9.1.redis-cluster
+在redis-cluster出现之前，若想实现redis分量存储，需要借助中间件实现，例如：codis或twemproxy，它们负责将数据分布存储在不同的redis实例上。后续，redis官方提供了集群方案：redis-cluster，它要求集群内的每个redis节点需要暴露2个端口，一个用于客户端通信，一个用于节点间通信（一般是客户端通信端口加10000）redis-cluster有两个显著的特点：
+
+- 自动将数据进行分片
+- 内置高可用支持（集群节点存在master和follower角色），功能类似redis-sentinel
+
+## 9.1.cluster简介
 
 redis-cluster集群模式需要redis 3.0以上版本支持，由多个Redis服务器组成的分布式网络服务集群。每一个Redis服务器称为节点Node，节点之间会相互通信，两两相连。redis-cluster集群采用无中心结构，无中心节点，每个节点有两种角色可选：主节点master node、从节点slave node，其中主节点用于存储数据，从节点是某个主节点的复制品
 
-当需要处理更多的读请求时，可以添加从节点，例如7000主节点可以添加7006从节点、7007从节点，以扩展系统的读性能。这一点跟[主从复制](#8.主从复制)道理是一样的，从节点会同步主节点的数据
+当需要处理更多的读请求时，可以添加从节点，例如7000主节点可以添加7006从节点、7007从节点，以扩展系统的读性能。这一点跟主从复制道理是一样的，从节点会同步主节点的数据
 
 ![](./images/redis-cluster集群模式.png)
 
-### 9.1.1.故障转移
+## 9.2.通信机制
 
-redis-cluster集群的主节点内置了类似[redis-sentinel](#9.哨兵模式)的节点故障检测和自动故障转移功能，当集群中的某个主节点下线时，集群中的其它在线主节点会监测到，并对已下线的主节点进行故障转移。集群进行故障转移的方法和Redis-Sentinel进行故障转移的方法基本一样，不同的是，在集群里面，故障转移是由集群中其它在线的主节点负责进行的，因此集群不需要额外使用Sentinel。
+redis-cluster内的master节点会暴露一个端口用于内部通信，即cluster bus，用来进行故障检测、配置更新、故障转移授权
 
-### 9.1.2.数据分片
+### 9.2.1.基本通信原理
 
-redis-cluster集群将整个数据库分为16384个分片solt，所有Key都可以匹配这些slot中的一个，key的分片计算公式：**slot_num=crc16(key)%16384**，其中crc16为16位的循环冗余校验和函数。集群中的每个主节点都可以处理0~16383个分片，但是集群中一般是所有**主节点**平均分担16384个分片，当16384个分片都有节点在负责处理时，集群就可以工作了！
+维护集群元数据有两种方式：集中式、Gossip 协议：
 
-（所以redis-cluster集群一般会搭建**奇数个**主节点）
+- 集中式：将集群元数据（节点信息、故障等等）几种存储在某个节点（一般是第三方中间件），比如旧版kafka会将broker信息存储在zookeeper上；
+- gossip协议：所有节点都持有一份元数据，不同的节点如果出现了元数据的变更，就不断将元数据发送给其它的节点，让其它节点也进行元数据的变更；
 
-### 9.1.3.路由转向
+集中式的好处在于其时效性很好，元数据一旦变更就可以通知到所有节点，但是它把压力给到了集中存储的节点上，有一定的风险；gossip好处在于元数据的更新分散了，避免集中式节点的压力，但它更新存在延时，集群中的其它节点更新操作会滞后
+
+### 9.2.2.gossip协议
+
+Gossip protocol 也叫 Epidemic Protocol （流行病协议），实际上它还有很多别名，比如：“流言算法”、“疫情传播算法”等，它的原理就跟它的名字一样：gossip 过程是由种子节点发起，当一个种子节点有状态需要更新到网络中的其他节点时，它会随机的选择周围几个节点散播消息，收到消息的节点也会重复该过程，直至最终网络中所有的节点都收到了消息。这个过程可能需要一定的时间，由于不能保证某个时刻所有节点都收到消息，但是理论上最终所有节点都会收到消息，因此是一个最终一致性协议
+
+<video src="./images/gossip协议原理.mp4"></video>
+
+redis采用了`gossip` 协议，用于节点间进行高效的数据交换，占用更少的网络带宽和处理时间。`gossip`协议包含多种消息，包含 `ping` , `pong` , `meet` , `fail` 等等。
+
+- meet：集群中的某个节点发送 meet 消息给新加入的节点，让新节点加入集群中，然后新节点就会开始与其它节点进行通信；
+- ping：每个节点都会频繁给其它节点发送 ping，其中包含自己的状态还有自己维护的集群元数据，节点之间互相通过 ping 交换元数据；
+- pong：返回 ping 和 meeet，包含自己的状态和其它信息，也用于信息广播和更新
+- fail：集群内某个节点判断另一个节点不可用之后，就发送 fail 消息给其它节点，通知其它节点：该节点已宕机
+
+## 9.3.数据分片
+
+数据分片，其实就是分布式寻址，来决定数据要存储到redis集群中的哪一个节点上，理论上有三种分布式寻址算法：
+
+- 普通hash算法
+- 一致性hash算法 + 虚拟节点（自动缓存迁移、自动负载均衡）
+- Redis cluster和hash slot算法（redis-cluster采用这种）
+
+### 9.3.1.hash slot
+
+redis cluster 有固定的 **16384** 个hash slot，集群中的每个主节点平均分担 **16384** 个分片，一旦 **16384**个分片都有主节点在负责处理时，整个redis cluster就可以工作了！对于每一个key，对其计算CRC16值（16位的循环冗余校验和函数）然后将结果对16384取模，就可以获取该key存放的hash slot，因此key的分片计算公式：**slot_num=crc16(key)%16384**
+
+hash slot 让节点的增加和移除很简单，增加一个 master，就将其它 master 的 hash slot 迁移一部分给它；减少一个 master，就将它的 hash slot 移动到其它 master 上。而移动 hash slot 的成本是非常低的，甚至客户端的 API 可以对指定的数据走同一个 hash slot，通过 `hash tag` 来实现。任何一台机器宕机，另外节点不影响，因为 key 找的是 hash slot，不是机器。
+
+### 9.3.2.路由转向
 
 redis-cluster集群无中心节点，每个节点都可以接受请求并且具备一定的路由能力。当客户端访问的key不在对应Redis节点的slot中，Redis返回给Client一个moved命令，告知其正确的路由信息，然后客户端根据路由信息包含的地址和端口重新向真正负责的节点发起请求：
 
 <img src="./images/路由转向.png" style="zoom:80%;" />
 
-### 9.1.4.集群配置参数
+## 9.4.集群管理
+
+### 9.4.1.配置参数
 
 在redis.conf中配置集群参数：
 
@@ -1133,17 +1191,7 @@ redis-cluster集群无中心节点，每个节点都可以接受请求并且具�
 
 6. **cluster-require-full-coverage** <yes/no>： 当redis集群的16384个分片slot没有被master节点完全分配完，如果此选项设置为yes，则集群不可用，拒绝提供服务；如果此选项设置为no，集群可用，继续提供服务。
 
-## 9.2.集群管理工具
-
-redis-trib.rb是redis官方推出的管理redis集群的工具，集成在redis的源码src目录下，是基于redis提供的集群命令封装成简单、便捷、实用的操作工具。redis-trib.rb是redis作者用ruby完成的，只用了1600行左右的代码，就实现了强大的集群操作。
-
-  参考文章: [http://blog.csdn.net/huwei2003/article/details/50973967](http://blog.csdn.net/huwei2003/article/details/50973967)
-
-在使用redis-trib.rb，使用help命令可以告诉我们使用方式和命令参数，大部分命令的参数都需要用host:port参数，指定集群内的某一节点，redis-trib.rb从该节点来获取集群的信息。使用redis-trib.rb的语法为：redis-trib \<command> \<options> <arguments ...>
-
-![](./images/redis集群管理工具.png)
-
-## 9.3.集群命令
+### 9.4.2.管理命令
 
 连接上去redis节点，进入命令行窗口
 
@@ -1165,5 +1213,3 @@ redis-trib.rb是redis官方推出的管理redis集群的工具，集成在redis�
 | cluster keyslot \<key>                        | 计算键key应该被放置在哪个槽上                                |
 | cluster countkeysinslot \<slot>               | 返回槽slot目前包含的键值对数量                               |
 | cluster getkeysinslot \<slot>  \<count>       | 返回count个slot槽中的键                                      |
-
- 

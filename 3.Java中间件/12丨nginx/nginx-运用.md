@@ -1,4 +1,20 @@
-# 1.nginx安装
+# 1.【Nginx】简介
+
+高并发和高性能、扩展性好、高可靠性、支持热部署
+
+
+
+1.nginx二进制可执行文件，它是由各个模块源码编译出的一个文件
+
+2.nginx.conf是配置文件，控制nginx的行为
+
+3.access.log是访问日志，记录每一条http请求信息
+
+4.errorl.log是错误日志，用于定位问题
+
+
+
+
 
 ## 1.1.安装依赖
 
@@ -238,12 +254,46 @@ nginx动静分离简单来说就是把动态跟静态请求分开，可以理解
 
 实际上nginx实现动静分离，就是通过location的url匹配将不同请求转发到不同服务器上，所以就把静态资源的请求转发静态资源所在服务器上即可。例如：配置nginx的`location`，如果请求路径是 `*/resources/*`，就用来映射静态资源；如果请求路径为其它，则转发到tomcat等后端服务器
 
-# 6.nginx集群
+# 6.静态资源配置
+
+将完整的静态资源文件夹，拷贝到nginx的安装目录中，然后通过nginx.conf映射url路径到指定的文件上，配置如下：
+
+```tex
+http {
+	include       mime.types;
+    default_type  application/octet-stream;
+    
+    # 开启nginx的压缩, 可以减少静态资源的传输
+	gzip  on;
+	# 小于这个参数指定的值就不需要压缩了
+	gzip_min_length 1; 
+	# 指定压缩级别
+	gzip_comp_level 2; 
+	# 手动指定需要压缩的文件
+	# gzip_types;
+	
+	server {
+		## 指定端口监听
+		listen       80;
+        server_name  localhost;
+        
+        # 配置url映射路径, 默认"/"都会映射
+        location / {
+        	# 使用“alias”关键字, 来将url路径映射到文件目录上, 这里的目录路径是相对地址
+        	# 这里配置会从 ../nginx/resources/visualization/...去寻找静态资源
+            alias resources/visualization/;
+            autoindex on;
+        }
+	}
+}
+```
+
+# 7.nginx集群
 
 借助keepalived部署nginx集群，安装keepalived命令， 默认安装在/etc/keepalived/目录下
 
 `yum install keepalived -y`
 
-# 7.openresty
+# 8.openresty
 
 OpenResty® 是一款基于 NGINX 和 LuaJIT 的 Web 平台。使用它可以容易地部署nginx

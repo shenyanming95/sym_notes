@@ -1,3 +1,12 @@
+# 1.Nginx组成
+
+Nginx由4部分组成：
+
+- 二进制可执行文件：由各个模块源码编译出来的文件
+- nginx.conf配置文件：控制nginx的运行行为
+- access.log访问日志：记录每一条http请求
+- error.log错误日志：便于定位问题
+
 # 1.Nginx高效原因
 
 Nginx高效的原因：

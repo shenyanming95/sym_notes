@@ -88,3 +88,47 @@ Broker中，对Topic下的每个MessageQueue都会有一系列的ConsumeQueue文
 这是什么意思呢？
 就是在Broker的磁盘上，会有下面这种格式的一系列文件：
 $HOME/store/consumequeue/{topic}/{queueId}/{fileName}  
+
+
+
+
+
+
+
+
+
+消费者进行消息拉取的底层源码是非常复杂的，涉及到大量的细节，但是他的核心思路大致就是如此，我们只要知道，哪怕是用常见的Push模式消费，本质也是消费者不停的发送请求到broker去拉取一批一批的消息就行了  
+
+
+
+
+
+
+
+其实消费消息的时候，本质就是根据你要消费的MessageQueue以及开始消费的位置，去找到对应的ConsumeQueue读取里面对应位置的消息在CommitLog中的物理offset偏移量，然后到CommitLog中根据offset读取消息数据，返回给消费者机器  
+
+
+
+
+
+
+
+消息数据格式：
+
+- 存储在commit log中的message
+
+![](./images/CommitLog-Message.png)
+
+- 存储在 consumer queue 的日志
+
+  ![](./images/ConsumeQueue.png)
+
+- 存储在index file 的日志
+
+  ![](./images/IndexFile.png)
+
+
+
+
+
+在 RocketMQ里消费方式虽有PUSH与PULL两种，但实现机制实为 PULL 模式，PUSH 模式是一种伪推送，是对 PULL 模式的封装，每拉去一批消息后，提交到消费端的线程池（异步），然后马上向 Broker 拉取消息，即实现类似“推”的效果

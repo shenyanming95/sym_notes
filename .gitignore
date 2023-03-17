@@ -1,0 +1,69 @@
+######################
+# Intellij
+######################
+.idea/
+target/
+*.iml
+*.iws
+*.ipr
+*.ids
+*.orig
+
+######################
+# Mac OSX
+######################
+.DS_Store
+.svn
+._*
+.Spotlight-V100
+.Trashes
+
+######################
+# Logs
+######################
+*.log
+*.log.gz
+*.tmp
+
+######################
+# Project Specific
+######################
+*build/
+*out/
+*classes/
+
+######################
+# Gradle
+######################
+.gradle/
+
+######################
+# Flyway Files
+######################
+flyway/jars/*.jar
+
+######################
+# Others
+######################
+*.class
+*.*~
+*~
+.merge_file*
+
+######################
+# Gradle Wrapper
+######################
+!gradle/wrapper/gradle-wrapper.jar
+
+
+######################
+# Python
+######################
+*.pyc
+
+######################
+# Configurations
+######################
+database.properties
+target/generated-sources/
+target/generated-test-sources/

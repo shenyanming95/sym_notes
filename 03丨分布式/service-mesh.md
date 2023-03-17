@@ -70,3 +70,21 @@ service mesh目前存在两个标准：
 
 - UDPA（universal data plane api）：统一的数据平面API
 - SMI（service mesh interface）：统一的控制平面API
+
+# 2.安装
+
+- 下载：curl -L https://istio.io/downloadistio | sh -   （不指定版本会下载最新版，也可以指定：ISTIO_VERSION=1.5.1 sh -）
+
+- 配置：加入下载后的目录，执行：export PATH=\$PWD/bin:$PATH。通过`istioctl version`验证
+- 安装：使用 istioctl 安装，有如下的安装方式：
+  - 默认安装：istioctl manifest apply
+  - 选择profile：istioctl manifest apply --set profile=demo
+  - 自定义安装选项：istioctl manifest apply --set addonComponents.grafana.enabled=true
+
+其中 istio 支持的profile有：
+
+- default：生产环境
+- demo：展示、学习
+- minimal：基本流控
+- remote：多网格共享平面
+- empty：自定义

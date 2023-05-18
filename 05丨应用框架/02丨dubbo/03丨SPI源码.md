@@ -366,7 +366,3 @@ private void loadClass(Map<String, Class<?>> extensionClasses, java.net.URL reso
         }
     }
 ```
-
-# 2.服务暴露
-
-Dubbo做服务暴露分为两大部分， 第一步将持有的服务实例通过代理转换成Invoker,第二步会把Invoker通过具体的协议（比如Dubbo）转换成Exporter

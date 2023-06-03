@@ -279,6 +279,161 @@ POST /product/_search
 }
 ```
 
+## 2.8.单字符串多字段查询
+
+- **Disjunction Max Query**：将任何与任一查询匹配的文档上作为结果返回，采用字段最匹配的评分最终返回
+
+  ```json
+  // 前置数据
+  PUT /blogs/_doc/1
+  {
+      "title": "Quick brown rabbits",
+      "body":  "Brown rabbits are commonly seen."
+  }
+  PUT /blogs/_doc/2
+  {
+      "title": "Keeping pets healthy",
+      "body":  "My quick brown fox eats rabbits on a regular basis."
+  }
+  
+  // title字段和body字段相互竞争，不应该将两个字段匹配的评分相加作为最终评分
+  // 而是应该返回单个字段匹配度最高的文档，此时使用dis_max可以将字段最匹配的文档返回。
+  POST blogs/_search
+  {
+      "query": {
+          "dis_max": {
+              "queries": [
+                  { "match": { "title": "Quick pets" }},
+                  { "match": { "body":  "Quick pets" }}
+              ]
+          }
+      }
+  }
+  
+  
+  POST blogs/_search
+  {
+      "query": {
+          "dis_max": {
+              "queries": [
+                  { "match": { "title": "Quick pets" }},
+                  { "match": { "body":  "Quick pets" }}
+              ],
+              // 参数tie_breaker表示：
+              // 是一个介于0-1之间的浮点数，0代表使用最佳匹配，1代表所有语句同等重要，
+              // 将其它匹配语句的评分与tie_breaker相乘.
+              "tie_breaker": 0.2
+          }
+      }
+  }
+  
+  
+  ```
+
+- **Multi Match**，多字段查询，它支持三种场景：
+
+  - 最佳字段，Best Fields，当字段之间相互竞争并且相互关联，评分来自最匹配字段；
+
+    ```json
+    // 创建索引
+    PUT /titles
+    {
+      "mappings": {
+        "properties": {
+          "title": {
+            "type": "text",
+            "analyzer": "english"
+          }
+        }
+      }
+    }
+    
+    // 新增文档
+    POST titles/_bulk
+    { "index": { "_id": 1 }}
+    { "title": "My dog barks" }
+    { "index": { "_id": 2 }}
+    { "title": "I see a lot of barking dogs on the road " }
+    
+    // 最佳匹配语法
+    POST blogs/_search
+    {
+      "query": {
+        "multi_match": {
+          "type": "best_fields",  //best fields是默认类型，可以不用指定
+          "query": "Quick pets",
+          "fields": ["title","body"],
+          "tie_breaker": 0.2,
+          "minimum_should_match": "20%"
+        }
+      }
+    }
+    ```
+
+  - 多数字段，Most Fileds，一般用于处理英文内容，常用手段是在主字段（English Analyzer）抽取词干，加入同义词，用来匹配更多文档了；加入子字段（Standard Analyzer）以提供更加精确的匹配，匹配字段越多则越好；
+
+    ```json
+    // 创建索引
+    PUT /titles
+    {
+      "mappings": {
+        "properties": {
+          "title": {
+            "type": "text",
+            "analyzer": "english",
+             // 这个子分词器用来控制搜索的精度
+            "fields": {"std": {"type": "text","analyzer": "standard"}}
+          }
+        }
+      }
+    }
+    
+    // 新增文档
+    POST titles/_bulk
+    { "index": { "_id": 1 }}
+    { "title": "My dog barks" }
+    { "index": { "_id": 2 }}
+    { "title": "I see a lot of barking dogs on the road " }
+    
+    // 查询语法
+    GET /titles/_search
+    {
+       "query": {
+            "multi_match": {
+                "query":  "barking dogs",
+                "type":   "most_fields",
+                "fields": [ "title", "title.std" ]
+            }
+        }
+    }
+    ```
+
+    
+
+  - 混合字段，cross field，对于某些实体，例如人名、地址、图书信息，需要在多个字段中确定信息，单个字段只能作为整体的一部分，希望在任何这些列出的字段中找到尽可能多的词。
+
+    ```json
+    PUT address/_doc/1
+    {
+        "street":"5 Poland Street",
+        "city":"London",
+        "country":"United Kingdom",
+        "postcode":"W1V 3DG"
+    }
+    
+    POST address/_search
+    {
+        "query":{
+            "multi_match":{
+                "query":"Poland Street W1V",
+                "type":"cross_fileds",
+                "operator":"and",
+                "fileds":["street","city","country","postcode"]
+            }
+        }
+    }
+    ```
+
 # 3.集群运维
 
 ## 3.1.集群健康

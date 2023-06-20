@@ -434,7 +434,7 @@ POST /product/_search
     }
     ```
 
-# 3.集群运维
+# 3.运维实战
 
 ## 3.1.集群健康
 
@@ -453,6 +453,40 @@ POST /product/_search
 | 429          | 集群过于繁忙       |
 | 4xx          | 请求体格式有错     |
 | 500          | 集群内部错误       |
+
+## 3.2.超时调整
+
+ES的超时参数，设置了但是好像不起作用？就像：
+
+```java
+SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder();
+SearchRequest searchRequest = new SearchRequest();
+searchRequest.source(searchSourceBuilder);
+searchRequest.query(...);//设置query
+searchSourceBuilder.timeout(new TimeValue(1));  //设置超时时间1ms
+SearchResponse response = client.search(searchRequest,RequestOptions.DEFAULT); 
+```
+
+实际结果返回是：
+
+```json
+{
+  "took": 5, //远大于上面定义的1ms超时时间
+  "timed_out": true,   
+  "_shards": {
+    "total": 5,
+    "successful": 5,//而且也没有超时中断
+    "skipped": 0,
+    "failed": 0
+  }
+}
+```
+
+首先需要先了解下从ES客户端发出请求到收到响应的时间线是如何的？执行流程如下图所示，如果是站在客户端的角度，端到端的时间实际上是『took + 网络传输时间 + 队列等待时间』
+
+ ![](./images/ES客户端请求时间线.png)
+
+
 
 # 4.插件体系
 

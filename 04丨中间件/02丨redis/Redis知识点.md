@@ -330,14 +330,14 @@ previous_entry_length这个字段存放上个节点的长度，那默认长度�
 
 ```c
 typedef struct redisObject {
-// 类型，记录了对象的类型(前面说的5种数据类型之一)
+	// 类型，记录了对象的类型(前面说的5种数据类型之一)
     unsigned type:4;
     // 编码
     unsigned encoding:4;
-// 记录对象最后一次被访问的时间
+	// 记录对象最后一次被访问的时间
     unsigned lru;
-// 记录当前对象被引用的次数，用于通过引用次数回收内存，当refcount=0时，
-// 可以安全回收当前对象空间
+	// 记录当前对象被引用的次数，用于通过引用次数回收内存，当refcount=0时，
+	// 可以安全回收当前对象空间
     unsigned refcount;
     // 指向底层实现数据结构的指针
     void *ptr;

@@ -95,6 +95,12 @@ public class App {
 
 4. 如果还未找到合适方法，抛出AbstractMethodError异常
 
+## 2.3.patch code
+
+虚拟机对类的加载是在第一次使用时才开始，在编译A方法的时候需要调用B方法，但B方法还没被加载进来，这时候虚拟机会再生成call指令，将它的目标地址填充为一个虚拟机内部的用于解析符号的方法。当CPU执行到这条call指令时，就会调用符号解析函数。这时候虚拟机才会开始加载B方法所在的类，然后就可以确认B方法的地址，此时再把B方法的地址写回到call指令里，下一次CPU执行到call指令时，就不用再进行符号解析了，可以直接调用到B方法。这种方式被称为：patch code
+
+![](https://static001.geekbang.org/resource/image/78/4c/78e36fae2f8c8239bae9fe422b1dce4c.jpg?wh=2284x1570)
+
 # 3.解释执行
 
 ## 3.1.指令执行架构

@@ -488,6 +488,180 @@ SearchResponse response = client.search(searchRequest,RequestOptions.DEFAULT);
 
 
 
+## 3.3.不推荐用ES 5.x
+
+ES 5.x版本存在非常多的内核Bug，对线上遇到的常见问题列举：
+
+### 3.3.1.主从数据不一致
+
+ES5.x版本，写入量较小的索引在增加副本数后，有概率出现主副本数据量不一致的问题，原因是translog乱序。处理方法如下：
+
+- 调用/_cat/shards接口，指定索引，查看分片数量是否一致，若明显不一致，且多次刷新仍未同步至一致状态，说明已经乱序；
+- 将索引副本改为0，flush索引，再次修改副本数量；
+- 如果有小量的不一致，说明当前集群写入量较大，多查询几次/_cat/shards接口，副本应该马上就会同步追上来了；
+
+### 3.3.2.集群熔断器熔断后无法恢复
+
+- https://www.elastic.co/cn/blog/improving-node-resiliency-with-the-real-memory-circuit-breaker
+
+### 3.3.3.主分片迁移超时,导致客户端超时
+
+【背景】
+
+5.x集群发生两起扩容时因为主分片迁移失败，进而引起客户端大量超时报错。主要的现象：
+
+- 一般发生在集群分片变化，例如机器扩容引起分片迁移，特别注意发生**主分片迁移**的情况；
+- 分片迁移极度缓慢，即便是很小的索引，也需要很长时间初始化，最终在日志里能看到迁移失败的信息，特别关注“timed out waiting for relocation hand-off to complete”这样的字眼；
+- 客户端读写大量超时，甚至出现"I/O reactor status: STOPPED"这类的错误信息。
+
+【分析】
+
+主分片迁移完成后，有一段finalize的代码，需要获取该分片全局读写锁，因为这个过程要保证老的主分片将权责移交给新的主分片。相关代码如下，注意这里，indexShardOperationsLock.blockOperations，这里是旧的主分片在获取全局锁，超时30min。正常情况下，这个过程毫秒级就能完成。但故障期间，等待了30min都没获得锁。说明，集群当时有写请求阻塞了这个过程。一般情况下写请求不可能耗时这么长。可能分片写入有引起阻塞的地方。
+
+```java
+public void relocated(String reason) throws IllegalIndexShardStateException, InterruptedException {
+        assert shardRouting.primary() : "only primaries can be marked as relocated: " + shardRouting;
+  try {
+    indexShardOperationsLock.blockOperations(30, TimeUnit.MINUTES, () -> {
+      // no shard operation locks are being held here, move state from started to relocated
+      assert indexShardOperationsLock.getActiveOperationsCount() == 0 :
+      "in-flight operations in progress while moving shard state to relocated";
+      synchronized (mutex) {
+        if (state != IndexShardState.STARTED) {
+          throw new IndexShardNotStartedException(shardId, state);
+        }
+        // if the master cancelled the recovery, the target will be removed
+        // and the recovery will stopped.
+        // However, it is still possible that we concurrently end up here
+        // and therefore have to protect we don't mark the shard as relocated when
+        // its shard routing says otherwise.
+        if (shardRouting.relocating() == false) {
+          throw new IllegalIndexShardStateException(shardId, IndexShardState.STARTED,
+                                                    ": shard is no longer relocating " + shardRouting);
+        }
+        changeState(IndexShardState.RELOCATED, reason);
+      }
+    });
+  } catch (TimeoutException e) {
+    logger.warn("timed out waiting for relocation hand-off to complete");
+    // This is really bad as ongoing replication operations are preventing this shard from completing relocation hand-off.
+    // Fail primary relocation source and target shards.
+    failShard("timed out waiting for relocation hand-off to complete", null);
+    throw new IndexShardClosedException(shardId(), "timed out waiting for relocation hand-off to complete");
+  }
+    
+```
+
+写副本逻辑，分片写入相关，WriteReplicaResult.respond vs WriteReplicaResult.onFailure或WriteReplicaResult.onSuccess，可能在不同的线程里被调用；但只有onSuccess方法加了synchronized同步锁，response和onFailure没有加。假设WriteReplicaResult.respond和WriteReplicaResult.onSuccess被同时调用，因为没有synchronized同步锁，可见性的问题，可能会导致双方对相关变量的修改，不会及时同步：
+
+1. WriteReplicaResult.respond里面对listener的赋值，在WriteReplicaResult.onSuccess里看不到；
+2. WriteReplicaResult.onSuccess里面对finishedAsyncActions的赋值，在WriteReplicaResult.respond也看不到。
+
+这样就导致respondIfPossible尽管执行了两次，但最终仍没有能正确的回调listener的接口。导致这一次写请求就永远hang住无法返回。主分片写副本请求不返回的情况下，主分片获取的锁就无法释放，从而导致2.1中主分片迁移要获取的全局锁一直失败。
+
+```java
+protected static class WriteReplicaResult<ReplicaRequest extends ReplicatedWriteRequest<ReplicaRequest>>
+  extends ReplicaResult implements RespondingWriteResult {
+  public final Location location;
+  boolean finishedAsyncActions;
+  private ActionListener<TransportResponse.Empty> listener;
+
+  public WriteReplicaResult(ReplicaRequest request, @Nullable Location location,
+                            @Nullable Exception operationFailure, IndexShard replica, Logger logger) {
+    super(operationFailure);
+    this.location = location;
+    if (operationFailure != null) {
+      this.finishedAsyncActions = true;
+    } else {
+      new AsyncAfterWriteAction(replica, request, location, this, logger).run();
+    }
+  }
+
+  @Override
+  public void respond(ActionListener<TransportResponse.Empty> listener) { 
+    // 此处应该有synchronized同步锁
+    this.listener = listener;
+    respondIfPossible(null);
+  }
+
+  /**
+         * Respond if the refresh has occurred and the listener is ready. Always called while synchronized on {@code this}.
+         */
+  protected void respondIfPossible(Exception ex) {
+    if (finishedAsyncActions && listener != null) {
+      if (ex == null) {
+        super.respond(listener);
+      } else {
+        listener.onFailure(ex);
+      }
+    }
+  }
+
+  @Override
+  public void onFailure(Exception ex) { // 此处应该有synchronized同步锁
+    finishedAsyncActions = true;
+    respondIfPossible(ex);
+  }
+
+  @Override
+  public synchronized void onSuccess(boolean forcedRefresh) {
+    finishedAsyncActions = true;
+    respondIfPossible(null);
+  }
+}
+```
+
+【客户端影响】
+
+对客户端来说，由于写请求hang住长期不返回，客户端偶尔出现几个这样的请求不会有任何影响，对ES集群来说也仅仅是出现一点点内存泄露而已。但如果恰好发生在扩容引起的主分片迁移期间，因为主分片迁移最后的finalize操作要获取全局的写锁，这个行为会导致在之后进来的写请求全部放队列等待，因为主分片迁移hang住了30min，这些队列中的写请求自然不会有响应。反映到客户端，可以观察到以下现象：
+
+1. 这期间对这份索引的写请求基本全部超时；
+2. 写请求占用了大量的http连接池资源不释放，也会影响本来正常的查询请求，这里仍然是因为request connection timeout没有配置，引起无限等待；
+3. 客户端重启无效。
+
+### 3.3.4.ES集群网络连接插件Bug导致客户端I/O中断
+
+- **问题：**ES5.6.3集群报IO reactor STOPPED类似这样的错误，该错误是从httpclient创建的netty channel从下往上抛出来的：
+
+  1.未使用最新的poros client或者使用的是老的eaglerestclient，没有对底层的网络错误做兜底，导致整个httpclient无法使用。目前只能重启客户端或者升级到最新的poros client解决；
+
+  2.使用了最新的poros client，仍然报这种错误。但客户端并非完全不可用，只是某些请求会完全hang住（持续900s）。这种情况发生在5.6.3集群。业务重启客户端之后暂时解决，但后续仍然可能重复出现；
+
+- **原因：**第2种情况，经过排查，问题发生在ES server端。5.6.3的netty4transport插件有一个bug，会导致客户端与服务端创建连接的时候，（一个connection可能会创建多个netty channel，对于bulk请求类型是1个connection创建3个channel）若某个channel在创建后因为某些原因断开，理论上它应该关闭整个connection。但因为这个bug，导致这个逻辑没有执行。因此留下了一个不可用的connection但却无法关闭。从而导致客户端产生以下行为：
+  1.当前的请求长时间无法收到返回直到900s后因为超时被中断；
+  2.执行新的请求如果使用了这个connection，则立马会报IO STOPPED的错误，导致请求失败。这种情况，如果使用的是最新的poros client，因为对这个错误做了兜底，它不会导致httpclient不可用，但有一定概率会引起一些请求长时间hang住。
+  目前第二种情况在5.6.4已经解决了，后续会出一个5.6.4的包，对一些出现该错误且重启后反复出现的业务，可以原地升级。
+
+### 3.3.5.scroll 查询时返回的hits.total数据不正确
+
+- https://github.com/elastic/elasticsearch/pull/31259
+
+### 3.3.6.BulkProcess 可能发生死锁
+
+该版本的bulk process，flush线程与retry线程使用的是同一个Scheduler，只有一个core thread。如果不幸在flush线程中发生了失败重试，由于flush线程在等待这一批bulk request结果返回，所以这个线程是阻塞的，而重试的逻辑执行又在等待这个唯一的定时任务线程，所以导致了死锁。同时，由于flush线程执行开始的地方拿到了互斥锁，这个互斥锁会导致其他业务线程无法往bulk process内添加index request，导致其他业务线程全部阻塞。
+
+官方的后续修复逻辑是单独为flush和retry提供两个scheduler，避免死锁。目前这个版本的bulk process没有办法绕过这个问题，所以修复的建议是：
+
+1. 不使用bulk processor；
+2. 业务侧自己拷贝bulk processor代码，使用两个独立的scheduler；
+3. 发生阻塞、死锁的情况下，及时重启客户端临时解决；
+4. 升级到新版本，例如ES7.10.0。
+
+官方issue请参考：[Prevent deadlock by using separate schedulers](https://github.com/elastic/elasticsearch/pull/48697)
+
+### 3.3.7.不停止的full gc问题
+
+ES社区有对应问题：https://github.com/elastic/elasticsearch/issues/26938；https://issues.apache.org/jira/browse/LUCENE-8058。主要是在像terms此类的查询，query cache的真实占用的内存大小可以远大于计算统计的值，导致 query cache突破了堆内存10%的上限
+
+【解决方案】
+
+1. 减少query cache条数。默认是10000。官方在6.x是通过减少cache条数来减低触发概率:https://github.com/elastic/elasticsearch/pull/26949
+2. 升级到ES7，在Lucene的7.2、8.0中去掉了TermInSetQuery的缓存数据，这样规避了这部分query的统计不准确问题，同时ES7将默认缓存条数恢复到10000条
+
+### 3.3.8.官方不在维护5.6.x
+
+ES官方在2019.3.11后不在维护5.6.x，即5.6.x后续出现的任何Bug都不会进行修复[官方维护时间表](https://www.elastic.co/cn/support/eol)
+
 # 4.插件体系
 
 ## 4.1.分词

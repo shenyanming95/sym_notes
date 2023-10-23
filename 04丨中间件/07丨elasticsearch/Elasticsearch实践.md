@@ -664,7 +664,7 @@ ES官方在2019.3.11后不在维护5.6.x，即5.6.x后续出现的任何Bug都�
 
 # 4.插件体系
 
-## 4.1.分词
+## 4.1.内置分词
 
 分词器（Analyzer）是专门处理分词的组件，由三部分组成：
 
@@ -741,7 +741,7 @@ GET _analyze
 }
 ```
 
-**中文分词**
+## 4.2.中文分词
 
 - icu analyzer，提供Unicode的支持，更好的支持亚洲语言，需要安装，执行命令：Elasticsearch-plugin install analysis-ico。语法为：
 
@@ -754,5 +754,30 @@ GET _analyze
   ```
 
 - IK。第三方插件，支持自定义词库，支持热更新分词词典。地址： [elasticsearch-analysis-ik](https://github.com/medcl/elasticsearch-analysis-ik)
+
 - THULAC。第三方插件，清华大学自然语言处理和社会人文计算实验室的一套中文分词器。地址： [elasticsearch-thulac-plugin](https://github.com/microbun/elasticsearch-thulac-plugin)
 
+- HanLP-面向生产环境的自然语言处理工具包
+
+  - 官网：https://www.hanlp.com/
+  - es插件：https://github.com/KennFalcon/elasticsearch-analysis-hanlp
+
+  ```xquery
+  // hanlp: hanlp默认分词
+  // hanlp_standard: 标准分词
+  // hanlp_index: 索引分词
+  // hanlp_nlp: NLP分词
+  // hanlp_n_short: N-最短路分词
+  // hanlp_dijkstra: 最短路分词
+  // hanlp_speed: 极速词典分词
+  
+  GET _analyze
+  {
+  	"analyzer":"hanlp_standard",
+  	"text":["剑桥分析公司多位高管对卧底记者说"]
+  }
+  ```
+
+- Pinyin-拼音分词器，比如可以输入一个人名的拼音，搜索出对应的人名
+
+  - es插件：https://github.com/medcl/elasticsearch-analysis-pinyin

@@ -1,6 +1,6 @@
-# 1.消息存储服务
 
-## 1.1.存储设计
+
+# 1.存储结构
 
 ```java
 |-- store
@@ -33,7 +33,7 @@ RocketMQ源码目录下的【store】目录就是它完整的存储设计，可�
 
 ![rocketMQ存储流量逻辑](./images/rocketMQ存储流量逻辑.png)
 
-### 1.1.2.MappedFile
+## 1.2.MappedFile
 
 RocketMQ 的底层存储文件有很多，比如刚才咱们说的  commitLog 文件、consumeQueue 文件和 indexFile 文件。不同的磁盘文件，一定会有相同的操作逻辑，比如从磁盘读取数据到内存，将内存的数据持久化到磁盘等等。为了更好得抽象出这些通用逻辑，RocketMQ 设计两个类，也就是 MappedFile 和 MappedFileQueue。
 
@@ -71,7 +71,8 @@ protected void commit0(final int commitLeastPages) {
   if (writePos - lastCommittedPosition > commitLeastPages) {
     try {
       // slice()可以从原缓冲区构造出一个新的缓冲区, 它们的位置偏移量各自独立,
-      // 但是可以共享同一个底层字节数组. rocketMQ 使用这个方法可以避免更改到 writeBuffer 自身的位置偏移量.
+      // 但是可以共享同一个底层字节数组. rocketMQ 使用这个方法可以避免更改到 
+      // writeBuffer 自身的位置偏移量.
       ByteBuffer byteBuffer = writeBuffer.slice();
       byteBuffer.position(lastCommittedPosition);
       byteBuffer.limit(writePos);
@@ -100,7 +101,8 @@ public int flush(final int flushLeastPages) {
       int value = getReadPosition();
       try {
         // 要么使用 fileChannel 刷盘, 要么使用 mappedByteBuffer 刷盘.
-        // 注意：若writeBuffer不为空, 那就得先 commit 再 flush, 不然存储在writeBuffer 的数据是不会进入到 FileChannel.
+        // 注意：若writeBuffer不为空, 那就得先 commit 再 flush, 不然存储在writeBuffer 
+        // 的数据是不会进入到 FileChannel.
         if (writeBuffer != null || this.fileChannel.position() != 0) {
           this.fileChannel.force(false);
         } else {
@@ -149,7 +151,7 @@ public SelectMappedBufferResult selectMappedBuffer(int pos, int size) {
     }
 ```
 
-### 1.1.3.CommitLog
+## 1.3.CommitLog
 
 【对比kafka】
 
@@ -169,7 +171,7 @@ rocketMQ既然选择将所有消息都写入到一个文件中，那么它必定
 
 ![](./images/commitlog索引.png)
 
-### 1.1.4.ConsumerQueue
+## 1.4.ConsumerQueue
 
 RocketMQ基于主题订阅模式实现消息的消费，消费者关心的是主题下的所有消息。但是由于不同主题的消息不连续的存储在commitlog文件中，如果要消费消息，直接遍历 commitlog 文件很不现实，所以为了提高查询效率，对应的主题的队列建立了索引文件，也就是 consumerqueue，这类文件的组织方式为 topic/queue/file 三层组织结构，如下图所示：
 
@@ -241,7 +243,7 @@ private boolean putMessagePositionInfo(final long offset, final int size, final 
 }
 ```
 
-### 1.1.5.IndexFile
+## 1.5.IndexFile
 
 commitLog 作为存储消息的载体，consumerQueue 面向消费者，被设计成 commitLog 的消费索引；而 indexFile 面向运维，它提供了一种可以通过 key 和时间区间来查询消息的方法。indexFile 文件是以当前文件创建时的时间戳命名，比如：20221118204122329。一个 indexFile 的文件结构为：
 
@@ -435,7 +437,7 @@ public void selectPhyOffset(final List<Long> phyOffsets, final String key, final
     }
 ```
 
-## 1.2.存储消息源码
+# 2.存储消息源码
 
 SendMessageProcessor是broker中的一个处理器，主要的功能就是处理Producer发来的消息，所以一条消息的存储就是从这开始：SendMessageProcessor#processRequest()。
 
@@ -785,7 +787,7 @@ private void doCommit() {
 }
 ```
 
-## 1.3.检索消息源码
+# 3.检索消息源码
 
 消息的存储，是为了更高效地检索，当然这里的检索指的就是Consumer消费消息。在RocketMQ中有两种消费模式：
 
@@ -949,7 +951,7 @@ public GetMessageResult getMessage(final String group, final String topic, final
  }
 ```
 
-## 1.4.延迟消息源码
+# 4.延迟消息源码
 
 RocketMQ 天然支持延迟消息，它允许生产者发送消息后并不立即对消费者可见，而是在指定的时间投递给消费者。不过RocketMQ并不支持任意时间的延迟消息，它规定了一系列的延迟等级，不同的延迟等级对应不同的时间。默认的延迟等级位于org.apache.rocketmq.store.config.MessageStoreConfig#messageDelayLevel
 
@@ -1080,7 +1082,7 @@ class DeliverDelayedMessageTimerTask extends TimerTask {
 }
 ```
 
-## 1.5.事务消息源码
+# 5.事务消息源码
 
 RocketMQ 事务消息设计主要是为了解决 Producer 端的消息发送与本地事务执行的原子性问题，它采用2PC(两段式协议) + 补偿机制（事务回查）实现事务消息，在4.3.0版本中开始支持事务。其整体交互流程：
 
@@ -1151,3 +1153,4 @@ public TransactionSendResult sendMessageInTransaction(final Message msg, final L
 ```
 
 ![](./images/事务消息-2.jpeg)
+
